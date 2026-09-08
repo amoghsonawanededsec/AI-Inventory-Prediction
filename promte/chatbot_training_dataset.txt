@@ -1,0 +1,443 @@
+# AI Inventory Chatbot Training Dataset
+# Format: intent + user utterance + expected backend/action behavior
+# Synthetic seed data for development and intent/router training.
+
+INTENT: inventory_status
+USER: How many products are currently in stock?
+ASSISTANT_ACTION: Use the live inventory tool and return the total quantity/value currently in stock.
+
+INTENT: inventory_status
+USER: Show me the current inventory.
+ASSISTANT_ACTION: Retrieve live inventory and summarize stock by product or category.
+
+INTENT: inventory_status
+USER: What is our inventory level today?
+ASSISTANT_ACTION: Query current inventory records and summarize the latest stock levels.
+
+INTENT: inventory_status
+USER: How much stock do we have for rice?
+ASSISTANT_ACTION: Look up the current stock for the requested product.
+
+INTENT: inventory_status
+USER: Is flour available right now?
+ASSISTANT_ACTION: Check the current inventory quantity for the requested product.
+
+INTENT: inventory_status
+USER: Give me a stock summary.
+ASSISTANT_ACTION: Return a concise live summary of inventory, low-stock items and inventory value.
+
+INTENT: inventory_status
+USER: Which category has the most stock?
+ASSISTANT_ACTION: Aggregate current inventory by category and return the highest-stock category.
+
+INTENT: inventory_status
+USER: Show inventory for the dairy category.
+ASSISTANT_ACTION: Filter live inventory to the dairy category.
+
+INTENT: inventory_status
+USER: What is the inventory value?
+ASSISTANT_ACTION: Calculate current inventory value from live stock and product prices.
+
+INTENT: inventory_status
+USER: How many units of apples are available?
+ASSISTANT_ACTION: Query the live stock quantity for the requested product.
+
+INTENT: low_stock
+USER: Which products are low in stock?
+ASSISTANT_ACTION: Find products at or below their configured reorder/low-stock threshold.
+
+INTENT: low_stock
+USER: Show me low-stock items.
+ASSISTANT_ACTION: Query live inventory for products below the low-stock threshold.
+
+INTENT: low_stock
+USER: What products might run out soon?
+ASSISTANT_ACTION: Compare current stock with forecast demand and identify near-term stockout risk.
+
+INTENT: low_stock
+USER: Which products are below reorder point?
+ASSISTANT_ACTION: Return products whose current stock is below their reorder point.
+
+INTENT: low_stock
+USER: Do we have any stockout risks?
+ASSISTANT_ACTION: Use inventory and forecast data to identify products likely to stock out.
+
+INTENT: low_stock
+USER: What needs urgent restocking?
+ASSISTANT_ACTION: Identify low-stock and high stockout-risk products.
+
+INTENT: low_stock
+USER: List products with critical stock.
+ASSISTANT_ACTION: Return products in the critical/low-stock state.
+
+INTENT: low_stock
+USER: Which items have less than 20 units?
+ASSISTANT_ACTION: Filter live inventory using the requested quantity threshold.
+
+INTENT: low_stock
+USER: Are eggs running low?
+ASSISTANT_ACTION: Check eggs against their configured stock/reorder threshold.
+
+INTENT: low_stock
+USER: What should the manager restock first?
+ASSISTANT_ACTION: Rank low-stock items by stockout risk and business priority.
+
+INTENT: forecast
+USER: What will the demand for yogurt be next week?
+ASSISTANT_ACTION: Retrieve the latest forecast for the requested product and horizon.
+
+INTENT: forecast
+USER: Forecast milk demand for the next 7 days.
+ASSISTANT_ACTION: Return the latest 7-day forecast for milk.
+
+INTENT: forecast
+USER: What is the predicted demand tomorrow?
+ASSISTANT_ACTION: Retrieve tomorrow's forecast from the ML inference service.
+
+INTENT: forecast
+USER: Show me next month's demand forecast.
+ASSISTANT_ACTION: Return the configured forecast for the requested month/horizon.
+
+INTENT: forecast
+USER: Will demand for eggs increase next week?
+ASSISTANT_ACTION: Compare the future forecast with a suitable historical baseline.
+
+INTENT: forecast
+USER: What are the top products by predicted demand?
+ASSISTANT_ACTION: Rank products by forecast demand for the selected horizon.
+
+INTENT: forecast
+USER: Give me a 14-day forecast for rice.
+ASSISTANT_ACTION: Retrieve the 14-day rice forecast.
+
+INTENT: forecast
+USER: How accurate is the demand model?
+ASSISTANT_ACTION: Return stored model evaluation metrics such as MAE, RMSE, MAPE and R².
+
+INTENT: forecast
+USER: Which model is currently best?
+ASSISTANT_ACTION: Compare stored model runs using the configured evaluation metrics.
+
+INTENT: forecast
+USER: Show actual versus predicted sales.
+ASSISTANT_ACTION: Return actual and forecast values for the selected product/date range.
+
+INTENT: expiry
+USER: Which products expire this week?
+ASSISTANT_ACTION: Query expiry dates and return products expiring within the requested period.
+
+INTENT: expiry
+USER: Show products expiring within 3 days.
+ASSISTANT_ACTION: Filter products by expiry date within three days from the current application date.
+
+INTENT: expiry
+USER: What expires tomorrow?
+ASSISTANT_ACTION: Return products whose expiry date is tomorrow.
+
+INTENT: expiry
+USER: Which items are already expired?
+ASSISTANT_ACTION: Find products whose expiry date is before the current application date.
+
+INTENT: expiry
+USER: Show high expiry-risk products.
+ASSISTANT_ACTION: Combine remaining shelf life and stock exposure to rank expiry risk.
+
+INTENT: expiry
+USER: Does any milk expire soon?
+ASSISTANT_ACTION: Check milk batches/products against current expiry alerts.
+
+INTENT: expiry
+USER: What should we sell first because of expiry?
+ASSISTANT_ACTION: Prioritize products with near expiry and meaningful stock exposure.
+
+INTENT: expiry
+USER: List food expiring in 7 days.
+ASSISTANT_ACTION: Return products with expiry within seven days.
+
+INTENT: expiry
+USER: Which batches have the shortest shelf life?
+ASSISTANT_ACTION: Rank active batches by remaining shelf life.
+
+INTENT: expiry
+USER: Are there any urgent expiry alerts?
+ASSISTANT_ACTION: Return current high-severity expiry alerts.
+
+INTENT: waste_risk
+USER: Which products have the highest waste risk?
+ASSISTANT_ACTION: Return products with high predicted waste risk.
+
+INTENT: waste_risk
+USER: How much waste are we expecting?
+ASSISTANT_ACTION: Retrieve predicted waste units and estimated monetary value.
+
+INTENT: waste_risk
+USER: Why is eggs at high waste risk?
+ASSISTANT_ACTION: Explain waste risk using stock, forecast demand and remaining shelf life.
+
+INTENT: waste_risk
+USER: Show me medium waste-risk products.
+ASSISTANT_ACTION: Filter waste predictions by medium risk.
+
+INTENT: waste_risk
+USER: Which products are likely to be wasted?
+ASSISTANT_ACTION: Return products where stock is expected to exceed demand before expiry.
+
+INTENT: waste_risk
+USER: How many units are at risk of waste?
+ASSISTANT_ACTION: Sum predicted at-risk units from the waste prediction service.
+
+INTENT: waste_risk
+USER: What actions can reduce waste?
+ASSISTANT_ACTION: Use waste policy knowledge and live waste predictions to recommend actions.
+
+INTENT: waste_risk
+USER: Which products should we discount?
+ASSISTANT_ACTION: Identify high waste-risk products suitable for discounting.
+
+INTENT: waste_risk
+USER: Where is waste increasing?
+ASSISTANT_ACTION: Compare waste trends over the selected time range.
+
+INTENT: waste_risk
+USER: What category has the most predicted waste?
+ASSISTANT_ACTION: Aggregate predicted waste by category.
+
+INTENT: reorder
+USER: What should I order tomorrow?
+ASSISTANT_ACTION: Calculate current reorder recommendations using forecast demand, lead time and safety stock.
+
+INTENT: reorder
+USER: How much rice should I order next week?
+ASSISTANT_ACTION: Calculate the recommended order quantity for rice for the requested horizon.
+
+INTENT: reorder
+USER: Give me recommended purchase quantities.
+ASSISTANT_ACTION: Return pending reorder recommendations and their quantities.
+
+INTENT: reorder
+USER: Why do you recommend ordering coca-cola?
+ASSISTANT_ACTION: Explain the reorder calculation using forecast demand, safety stock and current stock.
+
+INTENT: reorder
+USER: Which products need ordering now?
+ASSISTANT_ACTION: Return products whose calculated reorder quantity is greater than zero.
+
+INTENT: reorder
+USER: What is the reorder point for milk?
+ASSISTANT_ACTION: Retrieve the configured reorder point for milk.
+
+INTENT: reorder
+USER: How much safety stock should we keep?
+ASSISTANT_ACTION: Return the configured safety stock or explain the configured policy.
+
+INTENT: reorder
+USER: Which recommendations are waiting for approval?
+ASSISTANT_ACTION: Query reorder recommendations requiring manager approval.
+
+INTENT: reorder
+USER: Can you create a purchase order for approved recommendations?
+ASSISTANT_ACTION: Use the purchase-order workflow only for approved recommendations.
+
+INTENT: reorder
+USER: Which supplier should receive this order?
+ASSISTANT_ACTION: Look up the supplier associated with the product/recommendation.
+
+INTENT: sales_analytics
+USER: Why did milk sales decrease this week?
+ASSISTANT_ACTION: Compare recent sales with an appropriate prior period and inspect relevant factors such as price and promotions.
+
+INTENT: sales_analytics
+USER: What were total sales this month?
+ASSISTANT_ACTION: Aggregate live sales revenue and units for the current month.
+
+INTENT: sales_analytics
+USER: Which product sold the most?
+ASSISTANT_ACTION: Rank products by quantity sold for the selected period.
+
+INTENT: sales_analytics
+USER: Which category generated the most revenue?
+ASSISTANT_ACTION: Aggregate sales revenue by category.
+
+INTENT: sales_analytics
+USER: Show sales for the last 30 days.
+ASSISTANT_ACTION: Return sales analytics for the requested date range.
+
+INTENT: sales_analytics
+USER: What is the average daily sales for bread?
+ASSISTANT_ACTION: Calculate average daily bread sales over the selected period.
+
+INTENT: sales_analytics
+USER: Did promotions increase sales?
+ASSISTANT_ACTION: Compare promoted and non-promoted sales using available historical data.
+
+INTENT: sales_analytics
+USER: What was our revenue last week?
+ASSISTANT_ACTION: Aggregate live sales revenue for the previous week.
+
+INTENT: sales_analytics
+USER: Which products have declining sales?
+ASSISTANT_ACTION: Compare recent sales trends with a prior baseline.
+
+INTENT: sales_analytics
+USER: Show me the top 10 products by revenue.
+ASSISTANT_ACTION: Rank products by revenue for the selected period.
+
+INTENT: supplier
+USER: Who supplies milk?
+ASSISTANT_ACTION: Retrieve the supplier linked to milk.
+
+INTENT: supplier
+USER: What is the lead time for Global Grocers?
+ASSISTANT_ACTION: Return the configured supplier lead time.
+
+INTENT: supplier
+USER: Which supplier is most reliable?
+ASSISTANT_ACTION: Use stored supplier performance metrics to rank suppliers.
+
+INTENT: supplier
+USER: Show supplier performance.
+ASSISTANT_ACTION: Return supplier KPIs such as lead time and fulfillment/reliability metrics.
+
+INTENT: supplier
+USER: Which products does FreshMart Supply provide?
+ASSISTANT_ACTION: Return products linked to the supplier.
+
+INTENT: supplier
+USER: What is the minimum order quantity?
+ASSISTANT_ACTION: Retrieve the configured MOQ for the requested supplier/product.
+
+INTENT: supplier
+USER: Who supplies rice?
+ASSISTANT_ACTION: Look up the supplier for rice.
+
+INTENT: supplier
+USER: Which supplier has the shortest lead time?
+ASSISTANT_ACTION: Rank suppliers by lead time.
+
+INTENT: supplier
+USER: Are any supplier deliveries delayed?
+ASSISTANT_ACTION: Query purchase orders and supplier delivery status.
+
+INTENT: supplier
+USER: Compare our suppliers.
+ASSISTANT_ACTION: Return a concise comparison of configured supplier performance metrics.
+
+INTENT: explanation
+USER: Why is this product predicted to sell more?
+ASSISTANT_ACTION: Explain the forecast using available features and historical trends; do not invent causes.
+
+INTENT: explanation
+USER: Why is the stockout risk high?
+ASSISTANT_ACTION: Explain using current stock, forecast demand and lead time.
+
+INTENT: explanation
+USER: Why was this reorder quantity recommended?
+ASSISTANT_ACTION: Show the reorder formula inputs and calculation.
+
+INTENT: explanation
+USER: Explain the waste prediction.
+ASSISTANT_ACTION: Explain how forecast demand, stock and shelf life contribute to waste risk.
+
+INTENT: explanation
+USER: How does the demand model work?
+ASSISTANT_ACTION: Explain the implemented forecasting pipeline and stored model metadata.
+
+INTENT: explanation
+USER: Why did the forecast change?
+ASSISTANT_ACTION: Compare relevant model inputs and recent forecast versions when available.
+
+INTENT: explanation
+USER: What factors affect demand prediction?
+ASSISTANT_ACTION: Explain configured features such as historical sales, seasonality, promotions, price and inventory.
+
+INTENT: explanation
+USER: Explain safety stock.
+ASSISTANT_ACTION: Retrieve the inventory policy definition from the RAG knowledge base.
+
+INTENT: explanation
+USER: Why should we stop ordering this product?
+ASSISTANT_ACTION: Explain using current stock, forecast demand and waste/expiry risk.
+
+INTENT: explanation
+USER: How is waste risk calculated?
+ASSISTANT_ACTION: Explain the implemented waste-risk logic and its inputs.
+
+INTENT: what_if
+USER: What happens if sales increase by 20%?
+ASSISTANT_ACTION: Run a what-if simulation with demand increased by 20% and return impact on stockout, waste and reorder quantity.
+
+INTENT: what_if
+USER: What if demand rises by 30%?
+ASSISTANT_ACTION: Run the demand uplift scenario and recompute recommendations.
+
+INTENT: what_if
+USER: What if supplier lead time increases by 2 days?
+ASSISTANT_ACTION: Run a lead-time scenario and recompute reorder requirements.
+
+INTENT: what_if
+USER: What if we run a promotion on milk?
+ASSISTANT_ACTION: Simulate promotion impact using the configured scenario assumptions.
+
+INTENT: what_if
+USER: What if price increases by 10%?
+ASSISTANT_ACTION: Run the configured price scenario and show its forecast impact if the model supports it.
+
+INTENT: what_if
+USER: What if demand falls by 10%?
+ASSISTANT_ACTION: Run a demand decrease scenario and return updated waste/reorder risk.
+
+INTENT: what_if
+USER: How would a 20% sales increase affect stock?
+ASSISTANT_ACTION: Simulate the scenario and summarize stockout implications.
+
+INTENT: what_if
+USER: What if we delay the order by 3 days?
+ASSISTANT_ACTION: Simulate a lead-time/order-delay scenario.
+
+INTENT: what_if
+USER: What if we discount bread?
+ASSISTANT_ACTION: Run a configured discount scenario if the application has a supported demand assumption.
+
+INTENT: what_if
+USER: Can you simulate a higher holiday demand?
+ASSISTANT_ACTION: Run a holiday-demand scenario using supported model inputs.
+
+INTENT: general_inventory_help
+USER: What can you help me with?
+ASSISTANT_ACTION: Explain that the chatbot can answer inventory, forecasting, expiry, waste, reorder, sales, supplier and policy questions.
+
+INTENT: general_inventory_help
+USER: How do I use the inventory dashboard?
+ASSISTANT_ACTION: Explain the dashboard sections and filters.
+
+INTENT: general_inventory_help
+USER: How do I add a product?
+ASSISTANT_ACTION: Explain the product creation workflow.
+
+INTENT: general_inventory_help
+USER: How do I record a sale?
+ASSISTANT_ACTION: Explain the sales entry workflow.
+
+INTENT: general_inventory_help
+USER: How do I approve a reorder?
+ASSISTANT_ACTION: Explain the manager approval workflow.
+
+INTENT: general_inventory_help
+USER: How do I create a purchase order?
+ASSISTANT_ACTION: Explain the purchase-order workflow.
+
+INTENT: general_inventory_help
+USER: What does high waste risk mean?
+ASSISTANT_ACTION: Explain the risk classification using the inventory policy.
+
+INTENT: general_inventory_help
+USER: What does low stock mean?
+ASSISTANT_ACTION: Explain the configured low-stock/reorder threshold.
+
+INTENT: general_inventory_help
+USER: How often should forecasts be updated?
+ASSISTANT_ACTION: Explain the configured model refresh schedule from system settings/policy.
+
+INTENT: general_inventory_help
+USER: Where can I see model performance?
+ASSISTANT_ACTION: Point the user to the model performance page.

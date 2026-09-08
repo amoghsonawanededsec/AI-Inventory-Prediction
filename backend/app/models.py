@@ -1,0 +1,225 @@
+from datetime import date, datetime
+from typing import List, Optional
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from .db import Base
+
+
+class TimestampMixin:
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Role(Base):
+    __tablename__ = "roles"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    description: Mapped[str] = mapped_column(String(250), default="")
+
+
+class User(Base, TimestampMixin):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(120))
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(40), default="staff", index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Category(Base):
+    __tablename__ = "categories"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+
+
+class Supplier(Base, TimestampMixin):
+    __tablename__ = "suppliers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(150), unique=True)
+    email: Mapped[str] = mapped_column(String(255), default="")
+    phone: Mapped[str] = mapped_column(String(40), default="")
+    lead_time_days: Mapped[int] = mapped_column(Integer, default=3)
+    minimum_order_quantity: Mapped[int] = mapped_column(Integer, default=1)
+    reliability_score: Mapped[float] = mapped_column(Float, default=0.9)
+    products: Mapped[List["Product"]] = relationship(back_populates="supplier")
+
+
+class Product(Base, TimestampMixin):
+    __tablename__ = "products"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sku: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(180), index=True)
+    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"))
+    unit: Mapped[str] = mapped_column(String(30), default="unit")
+    price: Mapped[float] = mapped_column(Numeric(12, 2))
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))
+    manufacturing_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    expiry_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    current_stock: Mapped[int] = mapped_column(Integer, default=0)
+    minimum_stock: Mapped[int] = mapped_column(Integer, default=0)
+    maximum_stock: Mapped[int] = mapped_column(Integer, default=0)
+    reorder_point: Mapped[int] = mapped_column(Integer, default=0)
+    safety_stock: Mapped[int] = mapped_column(Integer, default=0)
+    lead_time_days: Mapped[int] = mapped_column(Integer, default=3)
+    status: Mapped[str] = mapped_column(String(30), default="active")
+    category: Mapped["Category"] = relationship()
+    supplier: Mapped["Supplier"] = relationship(back_populates="products")
+    batches: Mapped[List["InventoryBatch"]] = relationship(back_populates="product", cascade="all, delete-orphan")
+
+
+class InventoryBatch(Base, TimestampMixin):
+    __tablename__ = "inventory_batches"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    lot_number: Mapped[str] = mapped_column(String(80), index=True)
+    quantity: Mapped[int] = mapped_column(Integer)
+    received_date: Mapped[date] = mapped_column(Date)
+    expiry_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    product: Mapped["Product"] = relationship(back_populates="batches")
+
+
+class InventoryTransaction(Base, TimestampMixin):
+    __tablename__ = "inventory_transactions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    quantity_delta: Mapped[int] = mapped_column(Integer)
+    transaction_type: Mapped[str] = mapped_column(String(30))
+    note: Mapped[str] = mapped_column(String(500), default="")
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
+class Sale(Base):
+    __tablename__ = "sales"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    date: Mapped[date] = mapped_column(Date, index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    quantity_sold: Mapped[int] = mapped_column(Integer)
+    unit_price: Mapped[float] = mapped_column(Numeric(12, 2))
+    discount: Mapped[float] = mapped_column(Float, default=0)
+    promotion: Mapped[bool] = mapped_column(Boolean, default=False)
+    holiday: Mapped[bool] = mapped_column(Boolean, default=False)
+    channel: Mapped[str] = mapped_column(String(40), default="store")
+    location: Mapped[str] = mapped_column(String(100), default="Main Store")
+    revenue: Mapped[float] = mapped_column(Numeric(12, 2))
+
+
+class Forecast(Base, TimestampMixin):
+    __tablename__ = "forecasts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    forecast_date: Mapped[date] = mapped_column(Date, index=True)
+    predicted_quantity: Mapped[float] = mapped_column(Float)
+    model_name: Mapped[str] = mapped_column(String(80))
+    model_version: Mapped[str] = mapped_column(String(40), default="baseline-v1")
+    horizon_days: Mapped[int] = mapped_column(Integer)
+    __table_args__ = (UniqueConstraint("product_id", "forecast_date", "model_name", name="uq_forecast"),)
+
+
+class WastePrediction(Base, TimestampMixin):
+    __tablename__ = "waste_predictions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    risk_level: Mapped[str] = mapped_column(String(12))
+    units_at_risk: Mapped[int] = mapped_column(Integer)
+    estimated_value: Mapped[float] = mapped_column(Numeric(12, 2))
+    recommendation: Mapped[str] = mapped_column(String(500))
+    calculated_for: Mapped[date] = mapped_column(Date, default=date.today)
+
+
+class ExpiryAlert(Base, TimestampMixin):
+    __tablename__ = "expiry_alerts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    severity: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    expiry_date: Mapped[date] = mapped_column(Date)
+    recommendation: Mapped[str] = mapped_column(String(400))
+
+
+class ReorderRecommendation(Base, TimestampMixin):
+    __tablename__ = "reorder_recommendations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    forecast_demand: Mapped[int] = mapped_column(Integer)
+    recommended_quantity: Mapped[int] = mapped_column(Integer)
+    explanation: Mapped[str] = mapped_column(String(600))
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+
+
+class PurchaseOrder(Base, TimestampMixin):
+    __tablename__ = "purchase_orders"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    expected_delivery: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    items: Mapped[List["PurchaseOrderItem"]] = relationship(back_populates="purchase_order", cascade="all, delete-orphan")
+
+
+class PurchaseOrderItem(Base):
+    __tablename__ = "purchase_order_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    purchase_order_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    quantity: Mapped[int] = mapped_column(Integer)
+    unit_price: Mapped[float] = mapped_column(Numeric(12, 2))
+    purchase_order: Mapped["PurchaseOrder"] = relationship(back_populates="items")
+
+
+class KnowledgeDocument(Base, TimestampMixin):
+    __tablename__ = "knowledge_documents"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(180))
+    body: Mapped[str] = mapped_column(Text)
+
+
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("knowledge_documents.id"))
+    content: Mapped[str] = mapped_column(Text)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class ChatbotConversation(Base, TimestampMixin):
+    __tablename__ = "chatbot_conversations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    title: Mapped[str] = mapped_column(String(150), default="New conversation")
+
+
+class ChatbotMessage(Base):
+    __tablename__ = "chatbot_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("chatbot_conversations.id"))
+    role: Mapped[str] = mapped_column(String(20))
+    content: Mapped[str] = mapped_column(Text)
+    intent: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    citations: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ModelRun(Base, TimestampMixin):
+    __tablename__ = "model_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    model_name: Mapped[str] = mapped_column(String(100))
+    version: Mapped[str] = mapped_column(String(50))
+    train_start: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    train_end: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    mae: Mapped[float] = mapped_column(Float)
+    rmse: Mapped[float] = mapped_column(Float)
+    mape: Mapped[float] = mapped_column(Float)
+    r2: Mapped[float] = mapped_column(Float)
+    horizon_days: Mapped[int] = mapped_column(Integer)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    action: Mapped[str] = mapped_column(String(100))
+    entity: Mapped[str] = mapped_column(String(100))
+    entity_id: Mapped[str] = mapped_column(String(100))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -1,0 +1,387 @@
+MASTER BUILD PROMPT — AI-POWERED SMART INVENTORY MANAGEMENT & WASTE REDUCTION
+
+Build a production-style, full-fledged web application titled:
+“AI-Powered Inventory Demand Forecasting, Waste Reduction and Intelligent Conversational Decision Support System”.
+
+Use the attached project specification as the source of truth for the functional scope. The system must combine inventory management, ML demand forecasting, waste/expiry prediction, reorder optimization, analytics, and an intelligent chatbot. The attached specification explicitly describes React/HTML/CSS frontend options, Python FastAPI/Flask backend, PostgreSQL/MySQL/MongoDB, ML with Pandas/NumPy/scikit-learn/XGBoost/TensorFlow/PyTorch, and chatbot capabilities including NLP, LLM, RAG, embeddings and vector search.
+
+PRIMARY GOAL
+Create a complete usable product, not a demo page. All major screens must be connected to a real backend/API and database, with seeded sample data. Avoid hard-coded dashboard numbers where a database/API calculation is expected.
+
+TECHNOLOGY
+- Frontend: React + TypeScript + Tailwind CSS.
+- Backend: Python + FastAPI.
+- Database: PostgreSQL with SQLAlchemy/SQLModel and migrations.
+- ML: Pandas, NumPy, scikit-learn; XGBoost for a strong tabular forecasting baseline; support a time-series model such as LSTM/GRU or ARIMA as an experimental option.
+- Chatbot: intent detection + tool/function calling + RAG. Use an LLM provider through an environment variable. Do not expose API keys in frontend code.
+- Vector store: use a simple local/vector implementation for development and make the interface replaceable by pgvector/another vector DB.
+- Authentication: JWT with role-based access control.
+- Deployment: Docker + docker-compose; include .env.example and production configuration guidance.
+- Charts: Recharts or equivalent.
+
+USER ROLES
+1. Admin
+   - Manage users, products, suppliers and system settings.
+   - View organization-wide analytics.
+2. Inventory Manager
+   - Add/update products, monitor stock, view predictions, approve purchase recommendations.
+3. Staff
+   - Record sales and stock updates.
+   - Ask chatbot questions.
+Enforce permissions in the backend, not only the UI.
+
+CORE MODULES
+
+A. Authentication
+- Login/logout, password hashing, JWT access tokens.
+- Protected routes.
+- Role-based authorization.
+- Basic profile page.
+
+B. Dashboard
+Display live KPIs:
+- Total products
+- Low-stock products
+- Expiring-soon products
+- Predicted waste value
+- Expected demand
+- Recommended orders
+- Revenue
+- Inventory value
+Include date-range filters and category filters.
+Charts:
+- Actual vs predicted demand
+- Inventory levels
+- Sales/revenue trends
+- Waste trend
+- Expiry risk
+- Category-wise sales
+- Supplier performance
+
+C. Product & Inventory Management
+Product fields should include:
+product_id, name, category, unit, price, supplier_id, manufacturing_date,
+expiry_date, current_stock, minimum_stock, maximum_stock, reorder_point,
+safety_stock, lead_time_days, status.
+Support:
+- CRUD
+- Search/filter/sort/pagination
+- Stock adjustments
+- Batch/lot information
+- Expiry tracking
+- Audit history
+
+D. Sales Data
+Store:
+date, product_id, quantity_sold, unit_price, discount, promotion flag,
+holiday flag, channel, location/store, revenue.
+Provide import/export using CSV.
+
+E. Demand Forecasting
+Create a forecasting pipeline:
+1. Validate/clean historical data.
+2. Engineer lag, rolling mean, day-of-week, month, season, holiday,
+   promotion, price and inventory features.
+3. Split train/validation/test chronologically.
+4. Train at least two models, e.g. Random Forest/XGBoost and a time-series model.
+5. Compare MAE, RMSE, MAPE and R² where applicable.
+6. Select the best model per configured strategy.
+7. Store forecasts in the database.
+8. Expose forecast APIs and visualization.
+Allow forecast horizons such as 7, 14 and 30 days.
+Clearly distinguish actuals from forecasts.
+
+F. Waste Prediction
+Estimate potential surplus/waste using:
+current stock, forecast demand over remaining shelf life, expiry date,
+average sales velocity and product characteristics.
+Classify:
+- LOW
+- MEDIUM
+- HIGH
+Show estimated units at risk and estimated monetary value.
+Provide recommended actions:
+discount, promote, transfer, stop ordering, prioritize selling, donate if eligible.
+
+G. Expiry Detection
+Automatically identify:
+- expired
+- expiring within 1 day
+- within 3 days
+- within 7 days
+Provide alerts and action recommendations.
+Never claim a product is expired unless the expiry date is actually past.
+
+H. Smart Reorder Recommendation
+Calculate:
+recommended_order =
+max(0, forecast_demand_during_lead_time + safety_stock - current_stock)
+Optionally account for maximum stock and minimum order quantity.
+Show:
+- current stock
+- reorder point
+- forecast demand
+- safety stock
+- supplier lead time
+- recommended quantity
+- explanation
+Require manager approval before generating a purchase order.
+
+I. Purchase Orders
+- Draft/approve/reject purchase recommendations.
+- Generate purchase order with supplier, items, quantities and expected delivery.
+- Track status: draft, approved, ordered, received, cancelled.
+
+J. Supplier Management
+Store supplier contact information, lead time, minimum order quantity,
+reliability/performance metrics and supplied products.
+Provide supplier performance analytics.
+
+K. AI CHATBOT
+Create a dedicated chat interface with conversation history.
+The chatbot must support questions about:
+- current inventory
+- low stock
+- forecasts
+- expiry
+- waste risk
+- reorder recommendations
+- revenue/sales analytics
+- supplier information
+- explanations of predictions
+- what-if scenarios
+
+Example questions:
+“Which products are likely to expire this week?”
+“How much rice should I order next week?”
+“What will the demand for Coca-Cola be next week?”
+“Which products have the highest waste risk?”
+“What should I order tomorrow?”
+“Why did milk sales decrease this week?”
+“Which product generated the highest revenue this month?”
+“Which products will run out next week?”
+
+CHATBOT ARCHITECTURE
+User → Web Chat UI → Chat API → authentication/context → intent/router →
+tools (inventory DB, analytics queries, forecast service, waste service,
+reorder service) + RAG retrieval → LLM response.
+
+The chatbot must NOT invent database values. For quantitative questions,
+retrieve live data through backend tools. For document/policy questions,
+use RAG and cite the retrieved source title/section in the response.
+Return structured tool results internally, then generate a concise natural-language answer.
+
+Implement chatbot intents such as:
+inventory_status, low_stock, forecast, expiry, waste_risk,
+reorder, sales_analytics, revenue, supplier, explanation, what_if,
+general_inventory_help.
+
+RAG DOCUMENTS
+Seed a small knowledge base containing:
+- inventory policies
+- reorder policy
+- safety-stock explanation
+- expiry/waste policy
+- supplier policy
+- chatbot help/FAQ
+Chunk documents, create embeddings, retrieve top-k passages, and provide them
+to the LLM. Include source metadata.
+
+WHAT-IF SIMULATION
+Allow:
+- demand +10%, +20%, +30%
+- price change
+- promotion on/off
+- lead-time change
+Return impact on forecast, stockout risk, waste risk and recommended order.
+
+EXPLAINABLE AI
+Every forecast/reorder/waste recommendation should have an explanation.
+Example:
+“Recommended 150 units because forecast demand during the 2-day supplier
+lead time is 120 units, safety stock is 20 units, and current stock is 40.”
+
+DATABASE TABLES
+Implement at minimum:
+users, roles/permissions, products, categories, suppliers, inventory_transactions,
+sales, forecasts, waste_predictions, expiry_alerts, reorder_recommendations,
+purchase_orders, purchase_order_items, chatbot_conversations,
+chatbot_messages, knowledge_documents, knowledge_chunks, model_runs, audit_logs.
+
+API ENDPOINTS
+Create documented FastAPI endpoints for:
+- auth
+- users
+- products
+- categories
+- suppliers
+- inventory
+- sales
+- forecasts
+- waste
+- expiry
+- reorder
+- purchase-orders
+- analytics
+- chatbot
+- knowledge/RAG
+- model training/evaluation
+Use Pydantic schemas, validation, pagination, filtering and consistent error responses.
+Generate OpenAPI documentation.
+
+FRONTEND PAGES
+- Login
+- Dashboard
+- Products
+- Product details
+- Inventory transactions
+- Sales
+- Forecasts
+- Waste & expiry
+- Reorder recommendations
+- Purchase orders
+- Suppliers
+- Analytics
+- AI Chatbot
+- Knowledge base
+- Model performance
+- User management
+- Settings
+- 404/error states
+
+UI/UX
+- Responsive desktop/tablet/mobile layout.
+- Clean professional business dashboard.
+- Sidebar navigation and top bar.
+- Loading, empty, success and error states.
+- Accessible forms and tables.
+- Search, filtering and pagination.
+- Use consistent badges for LOW/MEDIUM/HIGH risk.
+- Do not overuse animations.
+- Show “last updated” timestamps for live analytics.
+
+SEED DATA
+Provide realistic synthetic seed data for:
+- at least 30 products
+- at least 8 suppliers
+- at least 12 months of daily sales for multiple products
+- inventory transactions
+- expiry dates
+- promotions and holidays
+The seed data must be deterministic and reproducible.
+
+ML EVALUATION
+Create a model evaluation page showing:
+- model name/version
+- train/test period
+- MAE
+- RMSE
+- MAPE
+- R²
+- training timestamp
+- forecast horizon
+Allow comparison between models.
+Do not use random train/test splitting for time-series forecasting.
+
+CHATBOT DATASET AND BENCHMARK
+Include the provided chatbot training dataset and benchmark files in the project.
+Use the dataset for intent classification / retrieval examples.
+Use the benchmark as a held-out evaluation set, never as training data.
+Report:
+- intent accuracy
+- precision
+- recall
+- F1
+- exact answer accuracy for deterministic questions where applicable
+- groundedness/unsupported-claim rate for RAG responses
+- tool-call success rate
+- response latency
+Create a benchmark runner script that outputs JSON/CSV results.
+
+SECURITY
+- Password hashing.
+- JWT expiration and refresh strategy.
+- Role checks on every protected API.
+- Input validation.
+- SQL injection-safe ORM queries.
+- Rate limit chatbot endpoints.
+- Never log secrets.
+- Environment variables for credentials/API keys.
+- CORS configured safely.
+- Audit sensitive changes.
+
+TESTING
+Provide:
+- backend unit tests
+- API integration tests
+- ML pipeline tests
+- chatbot intent/router tests
+- RAG retrieval tests
+- frontend component tests
+- end-to-end smoke tests for login → dashboard → chatbot → recommendation → PO.
+
+PROJECT STRUCTURE
+Create a clean monorepo such as:
+/
+  frontend/
+  backend/
+  ml/
+  data/
+  chatbot/
+  tests/
+  docs/
+  docker-compose.yml
+  .env.example
+  README.md
+
+DELIVERABLES
+Generate all source files needed for a runnable project, including:
+- frontend
+- backend
+- database models/migrations
+- ML training/evaluation pipeline
+- chatbot service
+- RAG pipeline
+- seed scripts
+- dataset files
+- benchmark files
+- tests
+- Docker configuration
+- README with exact setup commands.
+
+IMPORTANT IMPLEMENTATION RULES
+1. Do not create fake buttons or dead-end pages.
+2. Do not hard-code business KPIs that should come from the database.
+3. Keep ML training separate from real-time inference.
+4. Store model metadata and evaluation metrics.
+5. Use deterministic seed data.
+6. Validate every chatbot tool result before generating an answer.
+7. For “current/latest/how many” questions, query live application data.
+8. For “why/how does the policy work” questions, use RAG.
+9. If data is insufficient, say so rather than hallucinating.
+10. Include clear README instructions for local development, training, testing and Docker deployment.
+
+FIRST BUILD ORDER
+1. Project scaffolding and database.
+2. Authentication/RBAC.
+3. Products, inventory, sales and suppliers.
+4. Dashboard and analytics APIs.
+5. ML training + forecast storage.
+6. Waste/expiry/reorder engines.
+7. Purchase orders.
+8. Chatbot tools and intent router.
+9. RAG knowledge base.
+10. Frontend chatbot and remaining pages.
+11. Tests, benchmark runner and Docker.
+12. Final integration verification.
+
+At the end, provide:
+- architecture summary
+- database ERD description
+- API list
+- setup commands
+- training commands
+- benchmark commands
+- test commands
+- sample chatbot conversations
+- known limitations and future enhancements.

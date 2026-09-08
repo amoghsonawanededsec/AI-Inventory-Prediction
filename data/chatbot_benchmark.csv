@@ -1,0 +1,41 @@
+question,answer
+How many products are currently in stock?,Expected intent: inventory_status. Expected action: inventory_tool. Expected behavior: live DB count; no fabricated number
+Which products are below their reorder point?,Expected intent: low_stock. Expected action: low_stock_tool. Expected behavior: live filtered product list
+What will the demand for milk be over the next 7 days?,Expected intent: forecast. Expected action: forecast_tool. Expected behavior: 7-day milk forecast
+Show products expiring within 3 days.,Expected intent: expiry. Expected action: expiry_tool. Expected behavior: products with expiry <= 3 days
+Which products have the highest waste risk?,Expected intent: waste_risk. Expected action: waste_tool. Expected behavior: ranked high-risk products
+How much rice should I order next week?,Expected intent: reorder. Expected action: reorder_tool. Expected behavior: recommended rice order quantity + explanation
+Which product generated the highest revenue this month?,Expected intent: sales_analytics. Expected action: sales_analytics_tool. Expected behavior: top product by current-month revenue
+Who supplies milk and what is their lead time?,Expected intent: supplier. Expected action: supplier_tool. Expected behavior: supplier name + lead time
+Why is bread at high waste risk?,Expected intent: explanation. Expected action: waste_tool + explanation. Expected behavior: grounded explanation using returned inputs
+What happens if demand increases by 20%?,Expected intent: what_if. Expected action: what_if_tool. Expected behavior: updated stockout/waste/reorder impacts
+What can you help me with?,Expected intent: general_inventory_help. Expected action: help_response. Expected behavior: supported chatbot capabilities
+Is Coca-Cola available right now?,Expected intent: inventory_status. Expected action: inventory_tool. Expected behavior: live Coca-Cola quantity/status
+What should the manager restock first?,Expected intent: low_stock. Expected action: risk_ranking_tool. Expected behavior: prioritized restock list
+Which model is currently best?,Expected intent: forecast. Expected action: model_metrics_tool. Expected behavior: best stored model by configured metric
+Which items are already expired?,Expected intent: expiry. Expected action: expiry_tool. Expected behavior: products whose expiry date is past
+How many units are at risk of waste?,Expected intent: waste_risk. Expected action: waste_tool. Expected behavior: sum of predicted at-risk units
+Why do you recommend ordering eggs?,Expected intent: reorder. Expected action: reorder_tool + explanation. Expected behavior: formula inputs + recommendation rationale
+Why did milk sales decrease this week?,Expected intent: sales_analytics. Expected action: sales_analytics_tool. Expected behavior: period comparison + available drivers
+Which supplier has the shortest lead time?,Expected intent: supplier. Expected action: supplier_tool. Expected behavior: supplier ranked by lead time
+What if supplier lead time increases by 2 days?,Expected intent: what_if. Expected action: what_if_tool. Expected behavior: recomputed reorder/stockout impact
+What is the current inventory value?,Expected intent: inventory_status. Expected action: inventory_valuation_tool. Expected behavior: sum(current_stock * price)
+Do we have any stockout risks?,Expected intent: low_stock. Expected action: stockout_risk_tool. Expected behavior: products at forecasted stockout risk
+Show actual versus predicted sales for rice.,Expected intent: forecast. Expected action: forecast_tool. Expected behavior: actual and forecast series
+What should we sell first because of expiry?,Expected intent: expiry. Expected action: expiry_priority_tool. Expected behavior: near-expiry inventory priority
+Which category has the most predicted waste?,Expected intent: waste_risk. Expected action: waste_aggregation_tool. Expected behavior: category ranked by predicted waste
+Which recommendations are waiting for approval?,Expected intent: reorder. Expected action: reorder_tool. Expected behavior: pending manager approvals
+What was our revenue last week?,Expected intent: sales_analytics. Expected action: sales_analytics_tool. Expected behavior: previous-week revenue
+Which products does ABC Foods provide?,Expected intent: supplier. Expected action: supplier_tool. Expected behavior: ABC Foods product list
+Explain safety stock.,Expected intent: explanation. Expected action: rag_tool. Expected behavior: policy-grounded definition with source
+What if sales decrease by 10%?,Expected intent: what_if. Expected action: what_if_tool. Expected behavior: updated forecast/reorder/waste impacts
+How do I approve a reorder?,Expected intent: general_inventory_help. Expected action: rag/help. Expected behavior: approval workflow
+Give me a 14-day forecast for bread.,Expected intent: forecast. Expected action: forecast_tool. Expected behavior: 14-day bread forecast
+Are there any urgent expiry alerts?,Expected intent: expiry. Expected action: expiry_tool. Expected behavior: high-severity active alerts
+What actions can reduce waste?,Expected intent: waste_risk. Expected action: rag + waste_tool. Expected behavior: policy actions plus relevant live products
+What is the reorder point for milk?,Expected intent: reorder. Expected action: inventory_tool. Expected behavior: configured milk reorder point
+Did promotions increase sales?,Expected intent: sales_analytics. Expected action: sales_analytics_tool. Expected behavior: promoted vs non-promoted comparison
+Are any supplier deliveries delayed?,Expected intent: supplier. Expected action: purchase_order_tool. Expected behavior: delayed active orders
+Why is the stockout risk high for rice?,Expected intent: explanation. Expected action: stockout_risk_tool. Expected behavior: grounded explanation from stock/forecast/lead time
+How would a 20% sales increase affect stock?,Expected intent: what_if. Expected action: what_if_tool. Expected behavior: scenario result
+Show inventory for the dairy category.,Expected intent: inventory_status. Expected action: inventory_tool. Expected behavior: dairy inventory records

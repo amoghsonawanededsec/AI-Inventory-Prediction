@@ -1,0 +1,9 @@
+import { FormEvent, useState } from 'react'
+import { api, setSession } from '../lib/api'
+import type { User } from '../types'
+
+export default function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
+  const [email, setEmail] = useState('admin@inventory.example.com'), [password, setPassword] = useState('Admin123!'), [error, setError] = useState(''), [busy, setBusy] = useState(false)
+  async function submit(event: FormEvent) { event.preventDefault(); setBusy(true); setError(''); try { const result = await api<{ access_token: string; refresh_token: string; user: User }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }); setSession(result.access_token, result.refresh_token); onLogin(result.user) } catch (err) { setError(err instanceof Error ? err.message : 'Login failed') } finally { setBusy(false) } }
+  return <div className="login-page"><section className="login-art"><p className="eyebrow">INVENTORY INTELLIGENCE</p><h1>Turn every shelf into a smarter decision.</h1><p>Live inventory, demand forecasting, waste prevention and a grounded AI assistant in one operational workspace.</p><div className="feature-row"><span>✓ Live database KPIs</span><span>✓ Explainable recommendations</span><span>✓ Role-secured workflow</span></div></section><form className="login-card" onSubmit={submit}><div className="brand dark"><span className="brand-mark">S</span>Stockwise <b>AI</b></div><h2>Welcome back</h2><p>Sign in to manage your inventory.</p><label>Email<input value={email} onChange={e => setEmail(e.target.value)} type="email" required/></label><label>Password<input value={password} onChange={e => setPassword(e.target.value)} type="password" required/></label>{error && <p className="form-error">{error}</p>}<button className="primary-button" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button><small>Seed account: admin@inventory.example.com / Admin123!</small></form></div>
+}
