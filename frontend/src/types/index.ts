@@ -1,3 +1,4 @@
 export type User = { id: number; email: string; full_name: string; role: 'admin' | 'manager' | 'staff'; is_active: boolean }
-export type Product = { id: number; sku: string; name: string; category_name?: string; supplier_name?: string; price: number; current_stock: number; reorder_point: number; expiry_date?: string | null; unit: string; status: string }
+export type InventoryBatch = { id: number; product_id: number; product_name?: string; lot_number: string; quantity: number; received_date: string; expiry_date?: string | null; days_remaining?: number | null; status?: string }
+export type Product = { id: number; sku: string; name: string; category_id?: number; category_name?: string; supplier_id?: number; supplier_name?: string; price: number; current_stock: number; minimum_stock?: number; maximum_stock?: number; reorder_point: number; safety_stock?: number; lead_time_days?: number; expiry_date?: string | null; unit: string; status: string; batches?: InventoryBatch[] }
 export type Dashboard = { last_updated: string; kpis: Record<string, number>; sales_trend: { date: string; revenue: number; units: number }[]; category_sales: { name: string; value: number }[] }

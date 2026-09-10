@@ -1,13 +1,22 @@
 """Held-out chatbot benchmark runner. The supplied CSV is never used for training."""
 import argparse
+import asyncio
 import csv
 import json
+import os
 from pathlib import Path
 import sys
 from time import perf_counter
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "backend"))
+backend_dir = ROOT / "backend"
+sys.path.insert(0, str(backend_dir))
+
+# Automatically detect database file when executed from repository root or backend directory
+default_db_file = backend_dir / "inventory.db"
+if default_db_file.exists() and "DATABASE_URL" not in os.environ:
+    os.environ["DATABASE_URL"] = f"sqlite:///{default_db_file.as_posix()}"
+
 from app.db import SessionLocal  # noqa: E402
 from app.services.chatbot import answer, detect_intent  # noqa: E402
 
@@ -23,12 +32,31 @@ def run(source: Path, output: Path) -> dict:
         with source.open(encoding="utf-8-sig", newline="") as handle:
             for row in csv.DictReader(handle):
                 question, expected = row["question"], expected_intent(row["answer"])
-                started = perf_counter(); reply, intent, tool_data, citations = answer(db, question); elapsed = (perf_counter()-started)*1000
-                records.append({"question": question, "expected_intent": expected, "intent": intent, "intent_correct": intent == expected, "tool_success": bool(tool_data), "latency_ms": round(elapsed, 2), "grounded": bool(tool_data or citations), "response": reply})
+                started = perf_counter()
+                reply, intent, tool_data, citations = asyncio.run(answer(db, question))
+                elapsed = (perf_counter() - started) * 1000
+                records.append({
+                    "question": question,
+                    "expected_intent": expected,
+                    "intent": intent,
+                    "intent_correct": intent == expected,
+                    "tool_success": bool(tool_data),
+                    "latency_ms": round(elapsed, 2),
+                    "grounded": bool(tool_data or citations),
+                    "response": reply
+                })
     finally:
         db.close()
     count = len(records) or 1
-    summary = {"cases": len(records), "intent_accuracy": sum(r["intent_correct"] for r in records)/count, "tool_call_success_rate": sum(r["tool_success"] for r in records)/count, "groundedness_rate": sum(r["grounded"] for r in records)/count, "unsupported_claim_rate": 1-sum(r["grounded"] for r in records)/count, "mean_latency_ms": sum(r["latency_ms"] for r in records)/count, "results": records}
+    summary = {
+        "cases": len(records),
+        "intent_accuracy": sum(r["intent_correct"] for r in records) / count,
+        "tool_call_success_rate": sum(r["tool_success"] for r in records) / count,
+        "groundedness_rate": sum(r["grounded"] for r in records) / count,
+        "unsupported_claim_rate": 1 - sum(r["grounded"] for r in records) / count,
+        "mean_latency_ms": sum(r["latency_ms"] for r in records) / count,
+        "results": records
+    }
     output.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary
 

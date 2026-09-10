@@ -5,6 +5,7 @@ From repository root:
 """
 import argparse
 from datetime import date
+import os
 from pathlib import Path
 import sys
 import numpy as np
@@ -17,7 +18,21 @@ except ImportError:  # Allows API-only development installs; Docker requirements
     XGBRegressor = None
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "backend"))
+backend_dir = ROOT / "backend"
+sys.path.insert(0, str(backend_dir))
+
+# Support --database-url argument or environment variable or default to backend/inventory.db
+parser = argparse.ArgumentParser()
+parser.add_argument("--database-url", help="Set DATABASE_URL before running if not using default")
+cli_args, _ = parser.parse_known_args()
+
+if cli_args.database_url:
+    os.environ["DATABASE_URL"] = cli_args.database_url
+elif "DATABASE_URL" not in os.environ:
+    default_db = backend_dir / "inventory.db"
+    if default_db.exists():
+        os.environ["DATABASE_URL"] = f"sqlite:///{default_db.as_posix()}"
+
 from app.db import SessionLocal  # noqa: E402
 from app.models import ModelRun, Sale  # noqa: E402
 

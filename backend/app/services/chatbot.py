@@ -6,6 +6,7 @@ invent a number.
 """
 from datetime import date, timedelta
 import re
+import httpx
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from .forecasting import forecast_sum
@@ -174,7 +175,39 @@ def tool_what_if(db: Session, message: str) -> tuple[str, dict]:
     return f"If {product.name} demand changes by {direction * change:+d}%, lead-time demand changes from {lead_demand} to {adjusted} units. Stockout risk is {risk}; the revised recommended order is {order} units.", {"product_id": product.id, "forecast_demand": adjusted, "recommended_order": order, "stockout_risk": risk}
 
 
-def answer(db: Session, message: str) -> tuple[str, str, dict, list[dict]]:
+async def generate_llm_response(original_response: str, message: str) -> str:
+    from ..config import get_settings
+    settings = get_settings()
+    if not settings.llm_api_key or not settings.llm_model:
+        return original_response
+    
+    prompt = f"You are a helpful AI inventory assistant. The user asked: '{message}'. The internal system returned this validated factual result: '{original_response}'. Rephrase this fact into a helpful, natural conversational response. DO NOT invent any numbers. Do not add external facts."
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.nugen.in/v3/inference/chat/completions",
+                headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+                json={
+                    "model": settings.llm_model,
+                    "messages": [
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "max_tokens": 500,
+                    "temperature": 0.7
+                },
+                timeout=15.0
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        print(f"LLM generation failed: {e}")
+        return original_response
+
+
+async def answer(db: Session, message: str) -> tuple[str, str, dict, list[dict]]:
     intent = detect_intent(message)
     citations: list[dict] = []
     if intent == "inventory_status":
@@ -201,4 +234,6 @@ def answer(db: Session, message: str) -> tuple[str, str, dict, list[dict]]:
             response, data = citations[0]["content"], {"source": citations[0]["title"]}
         else:
             response, data = "I can help with live inventory, low stock, demand forecasts, expiry, waste risk, orders, sales revenue, and suppliers. Ask a specific inventory question.", {}
-    return response, intent, data, citations
+    
+    final_response = await generate_llm_response(response, message)
+    return final_response, intent, data, citations

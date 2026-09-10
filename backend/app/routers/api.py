@@ -7,10 +7,10 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..dependencies import get_current_user, require_roles
-from ..models import (AuditLog, Category, ChatbotConversation, ChatbotMessage, ExpiryAlert, Forecast, InventoryTransaction,
+from ..models import (AuditLog, Category, ChatbotConversation, ChatbotMessage, ExpiryAlert, Forecast, InventoryBatch, InventoryTransaction,
                       KnowledgeChunk, KnowledgeDocument, ModelRun, Product, PurchaseOrder, PurchaseOrderItem, ReorderRecommendation,
                       Sale, Supplier, User, WastePrediction)
-from ..schemas import (CategoryInput, ChatRequest, ForecastRequest, LoginRequest, POItemInput, ProductInput, PurchaseOrderInput,
+from ..schemas import (BatchInput, BulkBatchInput, CategoryInput, ChatRequest, ConvertReordersInput, ForecastRequest, LoginRequest, POItemInput, ProductInput, PurchaseOrderInput,
                        ReorderAction, SaleInput, StatusUpdate, StockAdjustment, SupplierInput, TokenResponse, UserCreate, UserRead,
                        WhatIfRequest)
 from ..security import create_token, hash_password, verify_password
@@ -177,6 +177,69 @@ def list_transactions(product_id: int | None = None, limit: int = Query(100, ge=
     return [{"id": t.id, "product_id": t.product_id, "quantity_delta": t.quantity_delta, "transaction_type": t.transaction_type, "note": t.note, "created_at": t.created_at} for t in query.order_by(InventoryTransaction.created_at.desc()).limit(limit)]
 
 
+@api.post("/inventory/batches", status_code=201, tags=["inventory"])
+def receive_batches(body: BulkBatchInput | BatchInput, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    items = body.batches if isinstance(body, BulkBatchInput) else [body]
+    results = []
+    for b in items:
+        product = db.get(Product, b.product_id)
+        if not product:
+            raise HTTPException(404, f"Product {b.product_id} not found")
+        batch = InventoryBatch(
+            product_id=product.id,
+            lot_number=b.lot_number,
+            quantity=b.quantity,
+            received_date=b.received_date,
+            expiry_date=b.expiry_date
+        )
+        db.add(batch)
+        product.current_stock += b.quantity
+        if b.expiry_date and (not product.expiry_date or b.expiry_date < product.expiry_date):
+            product.expiry_date = b.expiry_date
+        tx = InventoryTransaction(
+            product_id=product.id,
+            quantity_delta=b.quantity,
+            transaction_type="receipt",
+            note=f"Batch receipt lot {b.lot_number}",
+            user_id=user.id
+        )
+        db.add(tx)
+        db.flush()
+        audit(db, user, "batch_received", "product", product.id, {"lot": b.lot_number, "quantity": b.quantity, "batch_id": batch.id})
+        results.append({
+            "id": batch.id,
+            "product_id": product.id,
+            "product_name": product.name,
+            "lot_number": batch.lot_number,
+            "quantity": batch.quantity,
+            "received_date": batch.received_date,
+            "expiry_date": batch.expiry_date,
+            "current_stock": product.current_stock
+        })
+    db.commit()
+    return results if isinstance(body, BulkBatchInput) else results[0]
+
+
+@api.get("/inventory/batches", tags=["inventory"])
+def list_batches(product_id: int | None = None, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    query = db.query(InventoryBatch)
+    if product_id:
+        query = query.filter_by(product_id=product_id)
+    batches = query.order_by(InventoryBatch.expiry_date.asc().nullslast()).all()
+    today = date.today()
+    return [{
+        "id": b.id,
+        "product_id": b.product_id,
+        "product_name": db.get(Product, b.product_id).name if db.get(Product, b.product_id) else "Unknown",
+        "lot_number": b.lot_number,
+        "quantity": b.quantity,
+        "received_date": b.received_date,
+        "expiry_date": b.expiry_date,
+        "days_remaining": (b.expiry_date - today).days if b.expiry_date else None,
+        "status": "expired" if (b.expiry_date and b.expiry_date < today) else ("expiring" if (b.expiry_date and (b.expiry_date - today).days <= 7) else "good")
+    } for b in batches]
+
+
 @api.get("/sales", tags=["sales"])
 def list_sales(product_id: int | None = None, start: date | None = None, end: date | None = None, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200), db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     query = db.query(Sale)
@@ -336,11 +399,72 @@ def create_po(body: PurchaseOrderInput, db: Session = Depends(get_db), user: Use
     audit(db, user, "create", "purchase_order", po.id); db.commit(); return {"id": po.id, "status": po.status}
 
 
+@api.post("/purchase-orders/from-reorders", status_code=201, tags=["purchase orders"])
+def convert_reorders_to_pos(body: ConvertReordersInput, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "manager"))):
+    recommendations = db.query(ReorderRecommendation).filter(ReorderRecommendation.id.in_(body.recommendation_ids)).all()
+    if not recommendations:
+        raise HTTPException(404, "No recommendations found")
+    
+    by_supplier: dict[int, list[tuple[ReorderRecommendation, Product]]] = {}
+    for r in recommendations:
+        product = db.get(Product, r.product_id)
+        if not product:
+            continue
+        by_supplier.setdefault(product.supplier_id, []).append((r, product))
+    
+    created_pos = []
+    for supplier_id, rec_pairs in by_supplier.items():
+        supplier = db.get(Supplier, supplier_id)
+        delivery = date.today() + timedelta(days=supplier.lead_time_days if supplier else 3)
+        po = PurchaseOrder(supplier_id=supplier_id, expected_delivery=delivery, created_by=user.id, status="draft")
+        db.add(po)
+        db.flush()
+        
+        for r, product in rec_pairs:
+            qty = max(1, r.recommended_quantity)
+            db.add(PurchaseOrderItem(purchase_order_id=po.id, product_id=product.id, quantity=qty, unit_price=float(product.price)))
+            r.status = "approved"  # marked as approved / converted
+        
+        audit(db, user, "convert_from_reorder", "purchase_order", po.id, {"items_count": len(rec_pairs)})
+        created_pos.append(po.id)
+    
+    db.commit()
+    return {"created_pos": created_pos, "message": f"Successfully created {len(created_pos)} purchase order(s)"}
+
+
+@api.post("/purchase-orders/{po_id}/receive", tags=["purchase orders"])
+def receive_po(po_id: int, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "manager"))):
+    po = db.get(PurchaseOrder, po_id)
+    if not po:
+        raise HTTPException(404, "Purchase order not found")
+    if po.status == "received":
+        raise HTTPException(400, "Purchase order is already received")
+    
+    po.status = "received"
+    received_items = []
+    for item in po.items:
+        product = db.get(Product, item.product_id)
+        if product:
+            lot = f"PO{po.id}-LOT{item.id}"
+            product.current_stock += item.quantity
+            expiry = date.today() + timedelta(days=90)
+            batch = InventoryBatch(product_id=product.id, lot_number=lot, quantity=item.quantity, received_date=date.today(), expiry_date=expiry)
+            db.add(batch)
+            db.add(InventoryTransaction(product_id=product.id, quantity_delta=item.quantity, transaction_type="receipt", note=f"PO #{po.id} receipt", user_id=user.id))
+            received_items.append({"product_id": product.id, "product_name": product.name, "quantity": item.quantity, "lot_number": lot})
+    
+    audit(db, user, "received", "purchase_order", po.id, {"items": len(received_items)})
+    db.commit()
+    return {"id": po.id, "status": "received", "items_received": received_items}
+
+
 @api.post("/purchase-orders/{po_id}/status", tags=["purchase orders"])
 def update_po_status(po_id: int, body: StatusUpdate, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "manager"))):
     po = db.get(PurchaseOrder, po_id)
     if not po: raise HTTPException(404, "Purchase order not found")
     if body.status in {"approved", "ordered", "received"} and user.role not in {"admin", "manager"}: raise HTTPException(403, "Manager approval required")
+    if body.status == "received" and po.status != "received":
+        return receive_po(po_id, db, user)
     po.status = body.status; audit(db, user, "status_change", "purchase_order", po.id, {"status": body.status}); db.commit(); return {"id": po.id, "status": po.status}
 
 
@@ -361,12 +485,12 @@ def model_runs(db: Session = Depends(get_db), _: User = Depends(get_current_user
 
 @api.post("/chat", tags=["chatbot"])
 @limiter.limit("20/minute")
-def chat(request: Request, body: ChatRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def chat(request: Request, body: ChatRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     conversation = db.get(ChatbotConversation, body.conversation_id) if body.conversation_id else None
     if conversation and conversation.user_id != user.id: raise HTTPException(403, "Conversation belongs to another user")
     if not conversation:
         conversation = ChatbotConversation(user_id=user.id, title=body.message[:80]); db.add(conversation); db.flush()
-    response, intent, tool_data, citations = chatbot_answer(db, body.message)
+    response, intent, tool_data, citations = await chatbot_answer(db, body.message)
     db.add(ChatbotMessage(conversation_id=conversation.id, role="user", content=body.message, intent=intent))
     db.add(ChatbotMessage(conversation_id=conversation.id, role="assistant", content=response, intent=intent, citations=[{"title": c["title"], "section": c["section"]} for c in citations]))
     db.commit()

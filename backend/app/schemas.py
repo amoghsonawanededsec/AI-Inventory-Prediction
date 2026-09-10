@@ -144,3 +144,19 @@ class WhatIfRequest(BaseModel):
     price_change_pct: float = Field(default=0, ge=-50, le=100)
     promotion: bool = False
     lead_time_days: int | None = Field(default=None, ge=0, le=365)
+
+
+class BatchInput(BaseModel):
+    product_id: int
+    lot_number: str = Field(min_length=1, max_length=80)
+    quantity: int = Field(gt=0)
+    received_date: date = Field(default_factory=date.today)
+    expiry_date: date | None = None
+
+
+class BulkBatchInput(BaseModel):
+    batches: list[BatchInput] = Field(min_length=1)
+
+
+class ConvertReordersInput(BaseModel):
+    recommendation_ids: list[int] = Field(min_length=1)
