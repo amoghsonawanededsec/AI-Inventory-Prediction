@@ -483,6 +483,39 @@ def model_runs(db: Session = Depends(get_db), _: User = Depends(get_current_user
     return [{"id": r.id, "model_name": r.model_name, "version": r.version, "train_start": r.train_start, "train_end": r.train_end, "mae": r.mae, "rmse": r.rmse, "mape": r.mape, "r2": r.r2, "horizon_days": r.horizon_days, "trained_at": r.created_at} for r in db.query(ModelRun).order_by(ModelRun.created_at.desc())]
 
 
+@api.post("/models/train", tags=["model evaluation"])
+def trigger_model_training(db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "manager"))):
+    import importlib.util
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[3]
+    train_script = root / "ml" / "train_forecasts.py"
+    spec = importlib.util.spec_from_file_location("train_forecasts", str(train_script))
+    if not spec or not spec.loader:
+        raise HTTPException(500, "Could not load ML training module")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    results = module.train()
+    audit(db, user, "train_models", "model_runs", "batch", {"models_count": len(results)})
+    return {"message": "Models trained and evaluated successfully", "results": results}
+
+
+@api.get("/system/info", tags=["system"])
+def system_info(user: User = Depends(get_current_user)):
+    from ..config import get_settings
+    settings = get_settings()
+    return {
+        "app_name": settings.app_name,
+        "environment": settings.environment,
+        "database_engine": "SQLite" if "sqlite" in settings.database_url else "PostgreSQL",
+        "llm_configured": bool(settings.llm_api_key),
+        "llm_model": settings.llm_model,
+        "llm_base_url": settings.llm_base_url,
+        "rate_limiting": "20 requests/minute (SlowAPI)",
+        "auth_security": "JWT RBAC with PBKDF2-SHA256 password hashing",
+        "version": "1.0.0"
+    }
+
+
 @api.post("/chat", tags=["chatbot"])
 @limiter.limit("20/minute")
 async def chat(request: Request, body: ChatRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):

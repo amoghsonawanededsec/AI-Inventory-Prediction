@@ -77,7 +77,17 @@ def test_live():
         assert r.status_code == 200 and r.json()["status"] == "received"
         print(f"   [OK] PO #{po_id} received and inventory updated")
 
-    print("11. Checking AI Assistant /chat endpoint...")
+    print("11. Checking System Info & Architecture endpoint...")
+    r = client.get(f"{BASE_URL}/api/system/info", headers=headers)
+    assert r.status_code == 200 and "app_name" in r.json()
+    print(f"   [OK] System info: {r.json()['app_name']} | Engine: {r.json()['database_engine']} | Model: {r.json()['llm_model']}")
+
+    print("12. Checking What-If Scenario simulation...")
+    r = client.post(f"{BASE_URL}/api/what-if", headers=headers, json={"product_id": sample_product["id"], "demand_change_pct": 20, "price_change_pct": 5, "promotion": True})
+    assert r.status_code == 200 and "forecast_demand_during_lead_time" in r.json()
+    print(f"   [OK] What-If simulation: Lead demand {r.json()['forecast_demand_during_lead_time']} units, Stockout Risk: {r.json()['stockout_risk']}")
+
+    print("13. Checking AI Assistant /chat endpoint...")
     chat_payload = {"message": "Which products are below their reorder point?"}
     r = client.post(f"{BASE_URL}/api/chat", headers=headers, json=chat_payload)
     assert r.status_code == 200, f"Chat failed: {r.text}"

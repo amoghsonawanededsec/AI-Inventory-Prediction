@@ -181,30 +181,59 @@ async def generate_llm_response(original_response: str, message: str) -> str:
     if not settings.llm_api_key or not settings.llm_model:
         return original_response
     
-    prompt = f"You are a helpful AI inventory assistant. The user asked: '{message}'. The internal system returned this validated factual result: '{original_response}'. Rephrase this fact into a helpful, natural conversational response. DO NOT invent any numbers. Do not add external facts."
+    prompt = (
+        f"You are a helpful AI inventory assistant. The user asked: '{message}'. "
+        f"The internal system returned this validated factual result: '{original_response}'. "
+        f"Rephrase this fact into a helpful, natural conversational response. "
+        f"DO NOT invent any numbers or change facts. Keep all numerical quantities, dates, and currency values exact."
+    )
+    
+    base_url = (getattr(settings, "llm_base_url", None) or "https://api.nugen.in/api/v3").rstrip("/")
+    if "nugen" in base_url.lower():
+        endpoint = f"{base_url}/inference/chat/completions"
+        payload = {
+            "model": settings.llm_model,
+            "messages": [
+                {"role": "system", "content": "You are a professional inventory and supply chain decision assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 500,
+            "temperature": 0.3,
+            "reasoning": {"enabled": True}
+        }
+    else:
+        endpoint = f"{base_url}/chat/completions"
+        payload = {
+            "model": settings.llm_model,
+            "messages": [
+                {"role": "system", "content": "You are a professional inventory and supply chain decision assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 500,
+            "temperature": 0.3
+        }
     
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=6.0) as client:
             resp = await client.post(
-                "https://api.nugen.in/v3/inference/chat/completions",
-                headers={"Authorization": f"Bearer {settings.llm_api_key}"},
-                json={
-                    "model": settings.llm_model,
-                    "messages": [
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    "max_tokens": 500,
-                    "temperature": 0.7
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {settings.llm_api_key}",
+                    "Content-Type": "application/json"
                 },
-                timeout=15.0
+                json=payload
             )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            if resp.status_code == 200:
+                data = resp.json()
+                choices = data.get("choices", [])
+                if choices and "message" in choices[0] and choices[0]["message"].get("content"):
+                    return choices[0]["message"]["content"].strip()
+            else:
+                print(f"LLM API call returned status {resp.status_code}. Using validated system output.")
     except Exception as e:
-        print(f"LLM generation failed: {e}")
-        return original_response
+        print(f"LLM API call skipped ({type(e).__name__}). Using validated system output.")
+    
+    return original_response
 
 
 async def answer(db: Session, message: str) -> tuple[str, str, dict, list[dict]]:

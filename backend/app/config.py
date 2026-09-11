@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     refresh_token_days: int = 14
     cors_origins: str = "http://localhost:5173"
     llm_api_key: str | None = None
-    llm_model: str = ""
+    llm_model: str = "Llama-V3p2-3b-Reasoning"
+    llm_base_url: str = "https://api.nugen.in/api/v3"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
