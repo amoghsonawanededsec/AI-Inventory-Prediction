@@ -1,9 +1,9 @@
 import { BarChart3, Bot, Boxes, BrainCircuit, ClipboardList, FileText, LineChart, LogOut, Package, ShoppingCart, Truck, Users, Warehouse } from 'lucide-react'
 import type { User } from '../types'
 
-export type PageKey = 'dashboard' | 'products' | 'inventory' | 'sales' | 'forecasts' | 'waste' | 'reorders' | 'orders' | 'suppliers' | 'analytics' | 'chat' | 'knowledge' | 'models' | 'users' | 'settings'
+export type PageKey = 'dashboard' | 'data-input' | 'products' | 'inventory' | 'sales' | 'forecasts' | 'waste' | 'reorders' | 'orders' | 'suppliers' | 'analytics' | 'chat' | 'knowledge' | 'models' | 'users' | 'settings'
 const links: { key: PageKey; label: string; icon: typeof Boxes; admin?: boolean }[] = [
-  { key: 'dashboard', label: 'Overview', icon: BarChart3 }, { key: 'products', label: 'Products', icon: Package }, { key: 'inventory', label: 'Inventory log', icon: Warehouse },
+  { key: 'dashboard', label: 'Overview', icon: BarChart3 }, { key: 'data-input', label: 'Data Input Studio', icon: ClipboardList }, { key: 'products', label: 'Products', icon: Package }, { key: 'inventory', label: 'Inventory log', icon: Warehouse },
   { key: 'sales', label: 'Sales', icon: LineChart }, { key: 'forecasts', label: 'Forecasts', icon: BrainCircuit }, { key: 'waste', label: 'Waste & expiry', icon: ClipboardList },
   { key: 'reorders', label: 'Order planning', icon: ShoppingCart }, { key: 'orders', label: 'Purchase orders', icon: FileText }, { key: 'suppliers', label: 'Suppliers', icon: Truck },
   { key: 'analytics', label: 'Analytics', icon: BarChart3 }, { key: 'chat', label: 'AI assistant', icon: Bot }, { key: 'knowledge', label: 'Knowledge base', icon: FileText },
