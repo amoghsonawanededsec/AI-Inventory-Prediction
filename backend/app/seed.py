@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 import random
 from .db import Base, SessionLocal, engine
-from .models import Category, KnowledgeChunk, KnowledgeDocument, Product, Role, Sale, Supplier, User
+from .models import Business, Category, KnowledgeChunk, KnowledgeDocument, Product, Role, Sale, Supplier, User
 from .security import hash_password
 from .services.forecasting import forecast_product
 from .services.operations import refresh_operational_insights
@@ -43,12 +43,16 @@ def seed() -> None:
             print("Database already seeded; no changes made.")
             return
         randomizer = random.Random(20260907)
-        for role in ["admin", "manager", "staff"]:
+        business = Business(name="Stockwise Demo Business", owner_email="manager@inventory.example.com")
+        db.add(business)
+        db.flush()
+        db.info["business_id"] = business.id
+        for role in ["admin", "business_owner", "manager", "staff"]:
             db.add(Role(name=role, description=f"{role.title()} application role"))
         db.add_all([
             User(email="admin@inventory.example.com", full_name="Avery Admin", password_hash=hash_password("Admin123!"), role="admin"),
-            User(email="manager@inventory.example.com", full_name="Morgan Manager", password_hash=hash_password("Manager123!"), role="manager"),
-            User(email="staff@inventory.example.com", full_name="Sam Staff", password_hash=hash_password("Staff123!"), role="staff"),
+            User(email="manager@inventory.example.com", full_name="Morgan Manager", password_hash=hash_password("Manager123!"), role="business_owner", business_id=business.id),
+            User(email="staff@inventory.example.com", full_name="Sam Staff", password_hash=hash_password("Staff123!"), role="staff", business_id=business.id),
         ])
         categories = {name: Category(name=name) for name in CATEGORIES}
         db.add_all(categories.values())

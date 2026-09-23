@@ -1,7 +1,19 @@
 const API_ROOT = import.meta.env.VITE_API_URL || ''
-export const getToken = () => localStorage.getItem('inventory_access_token')
-export const setSession = (access: string, refresh: string) => { localStorage.setItem('inventory_access_token', access); localStorage.setItem('inventory_refresh_token', refresh) }
-export const clearSession = () => { localStorage.removeItem('inventory_access_token'); localStorage.removeItem('inventory_refresh_token') }
+export const getToken = () => {
+  localStorage.removeItem('inventory_access_token')
+  localStorage.removeItem('inventory_refresh_token')
+  return sessionStorage.getItem('inventory_access_token')
+}
+export const setSession = (access: string) => {
+  sessionStorage.setItem('inventory_access_token', access)
+  localStorage.removeItem('inventory_access_token')
+  localStorage.removeItem('inventory_refresh_token')
+}
+export const clearSession = () => {
+  sessionStorage.removeItem('inventory_access_token')
+  localStorage.removeItem('inventory_access_token')
+  localStorage.removeItem('inventory_refresh_token')
+}
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   const token = getToken(); if (token) headers.set('Authorization', `Bearer ${token}`)

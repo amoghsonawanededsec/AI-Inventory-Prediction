@@ -1,10 +1,12 @@
+from pathlib import Path
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from .config import get_settings
-from .db import Base, engine
 from .routers.api import api
 from .rate_limit import limiter
 
@@ -16,8 +18,9 @@ app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allo
 
 
 @app.on_event("startup")
-def create_tables() -> None:
-    Base.metadata.create_all(bind=engine)
+def apply_schema_migrations() -> None:
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    command.upgrade(config, "head")
 
 
 @app.exception_handler(HTTPException)

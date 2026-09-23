@@ -11,6 +11,20 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+class SignupRequest(BaseModel):
+    business_name: str = Field(min_length=2, max_length=180)
+    email: EmailStr
+    full_name: str = Field(min_length=2, max_length=120)
+    password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def password_needs_variety(cls, value: str) -> str:
+        if not any(char.islower() for char in value) or not any(char.isupper() for char in value) or not any(char.isdigit() for char in value):
+            raise ValueError("Password must include lowercase, uppercase, and numeric characters")
+        return value
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
@@ -24,13 +38,40 @@ class UserRead(ORMModel):
     full_name: str
     role: str
     is_active: bool
+    business_id: int | None = None
+    business_name: str | None = None
 
 
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=120)
     password: str = Field(min_length=8, max_length=128)
-    role: str = "staff"
+    role: str = Field(default="staff", pattern="^(admin|business_owner|manager|staff)$")
+    business_id: int | None = None
+
+
+class AdminUserUpdate(BaseModel):
+    role: str = Field(pattern="^(admin|business_owner|manager|staff)$")
+    is_active: bool
+    business_id: int | None = None
+
+
+class BusinessCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=180)
+    owner_name: str = Field(min_length=2, max_length=120)
+    owner_email: EmailStr
+    owner_password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("owner_password")
+    @classmethod
+    def owner_password_needs_variety(cls, value: str) -> str:
+        if not any(char.islower() for char in value) or not any(char.isupper() for char in value) or not any(char.isdigit() for char in value):
+            raise ValueError("Password must include lowercase, uppercase, and numeric characters")
+        return value
+
+
+class BusinessStatusUpdate(BaseModel):
+    is_active: bool
 
 
 class SupplierInput(BaseModel):

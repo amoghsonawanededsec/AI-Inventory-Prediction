@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CartesianGrid, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { AlertOctagon, AlertTriangle, Calendar, Clock, Filter, IndianRupee, Layers, PackageCheck, RefreshCw, ShoppingBag, TrendingUp } from 'lucide-react'
+import { AlertTriangle, Calendar, Filter, IndianRupee, PackageCheck, Plus, RefreshCw, ShoppingBag } from 'lucide-react'
 import { api } from '../lib/api'
 import type { Dashboard } from '../types'
 import type { PageKey } from '../components/Layout'
@@ -74,14 +74,10 @@ export default function DashboardPage({ onNavigate }: { onNavigate?: (page: Page
   const k = data.kpis
 
   const allCards = [
-    { key: 'total_products', label: 'Total Products', value: k.total_products.toLocaleString(), sub: 'Active in catalog', icon: PackageCheck, color: '#0f766e', target: 'products' as PageKey },
-    { key: 'low_stock_products', label: 'Low-Stock Items', value: k.low_stock_products.toLocaleString(), sub: 'At or below reorder pt', icon: AlertTriangle, color: '#d97706', target: 'products' as PageKey },
-    { key: 'expiring_soon_products', label: 'Expiring Soon', value: k.expiring_soon_products.toLocaleString(), sub: 'Within 7 days', icon: AlertOctagon, color: '#e11d48', target: 'waste' as PageKey },
-    { key: 'predicted_waste_value', label: 'Predicted Waste Risk', value: `₹${k.predicted_waste_value.toLocaleString()}`, sub: 'Estimated exposure', icon: Clock, color: '#be123c', target: 'waste' as PageKey },
-    { key: 'expected_demand', label: 'Expected Demand', value: `${k.expected_demand.toLocaleString()} units`, sub: '7-day forecast sum', icon: TrendingUp, color: '#0284c7', target: 'forecasts' as PageKey },
-    { key: 'recommended_orders', label: 'Recommended Orders', value: k.recommended_orders.toLocaleString(), sub: 'Awaiting approval', icon: ShoppingBag, color: '#4f46e5', target: 'reorders' as PageKey },
-    { key: 'revenue', label: 'Total Revenue', value: `₹${k.revenue.toLocaleString()}`, sub: `Past ${daysFilter} days`, icon: IndianRupee, color: '#059669', target: 'sales' as PageKey },
-    { key: 'inventory_value', label: 'Inventory Value', value: `₹${k.inventory_value.toLocaleString()}`, sub: 'Current asset valuation', icon: Layers, color: '#0f766e', target: 'inventory' as PageKey },
+    { key: 'total_products', label: 'Active Products', value: k.total_products.toLocaleString(), sub: 'Live in catalog', icon: PackageCheck, color: '#16745b', target: 'products' as PageKey },
+    { key: 'low_stock_products', label: 'Low-Stock Items', value: k.low_stock_products.toLocaleString(), sub: 'At or below reorder point', icon: AlertTriangle, color: '#bf731e', target: 'products' as PageKey },
+    { key: 'revenue', label: 'Revenue, Last 30 Days', value: `₹${k.revenue.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`, sub: 'From recorded sales', icon: IndianRupee, color: '#16745b', target: 'sales' as PageKey },
+    { key: 'recommended_orders', label: 'Recommended Orders', value: k.recommended_orders.toLocaleString(), sub: 'Awaiting approval', icon: ShoppingBag, color: '#53766c', target: 'reorders' as PageKey },
   ]
 
   return (
@@ -90,10 +86,7 @@ export default function DashboardPage({ onNavigate }: { onNavigate?: (page: Page
         <div>
           <p className="eyebrow">OPERATIONS OVERVIEW</p>
           <h1>Good morning, inventory team</h1>
-          <p>
-            Live database calculations. Last updated{' '}
-            <strong>{new Date(data.last_updated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong>.
-          </p>
+          <p>Live signals from the last {daysFilter} days. Updated {new Date(data.last_updated).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}.</p>
         </div>
         <div className="header-actions">
           <button
@@ -112,8 +105,9 @@ export default function DashboardPage({ onNavigate }: { onNavigate?: (page: Page
             onClick={handleAskAI}
             className="primary-button"
           >
-            Ask the AI Assistant
+            Ask the AI assistant
           </button>
+          <button type="button" className="secondary-button" onClick={() => onNavigate?.('data-input')}><Plus size={15}/>Quick data entry</button>
         </div>
       </header>
 
@@ -170,8 +164,7 @@ export default function DashboardPage({ onNavigate }: { onNavigate?: (page: Page
         </div>
       </section>
 
-      {/* 8 Live KPI Cards */}
-      <section className="kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))' }}>
+      <section className="kpi-grid dashboard-kpis">
         {allCards.map(({ key, label, value, sub, icon: Icon, color, target }) => (
           <article
             className="kpi-card"
@@ -236,11 +229,10 @@ export default function DashboardPage({ onNavigate }: { onNavigate?: (page: Page
       </section>
 
       {/* Grounded Insight Footer Strip */}
-      <section className="insight-strip" style={{ marginTop: '1rem' }}>
-        <span>Active Catalog: <strong>{k.total_products} items</strong> across {categories.length} categories</span>
-        <span>Reorder Alerts: <strong>{k.low_stock_products} items</strong> below safety threshold</span>
-        <span>Expected 7-day Demand: <strong>{k.expected_demand.toLocaleString()} units</strong></span>
-        <span>Estimated Waste Risk: <strong>₹{k.predicted_waste_value.toLocaleString()}</strong></span>
+      <section className="insight-strip dashboard-ribbon" style={{ marginTop: '1rem' }}>
+        <span>Expected 7-day demand: <strong>{k.expected_demand.toLocaleString()} units</strong></span>
+        <span>Predicted waste exposure: <strong>₹{k.predicted_waste_value.toLocaleString('en-IN')}</strong></span>
+        <span>Inventory value: <strong>₹{k.inventory_value.toLocaleString('en-IN')}</strong></span>
       </section>
     </>
   )

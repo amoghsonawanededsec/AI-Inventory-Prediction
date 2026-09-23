@@ -3,14 +3,14 @@ from io import StringIO
 import csv
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
-from ..db import get_db
+from ..db import engine, get_db
 from ..dependencies import get_current_user, require_roles
-from ..models import (AuditLog, Category, ChatbotConversation, ChatbotMessage, ExpiryAlert, Forecast, InventoryBatch, InventoryTransaction,
+from ..models import (AuditLog, Business, Category, ChatbotConversation, ChatbotMessage, ExpiryAlert, Forecast, InventoryBatch, InventoryTransaction,
                       KnowledgeChunk, KnowledgeDocument, ModelRun, Product, PurchaseOrder, PurchaseOrderItem, ReorderRecommendation,
                       Sale, Supplier, User, WastePrediction)
-from ..schemas import (BatchInput, BulkBatchInput, CategoryInput, ChatRequest, ConvertReordersInput, ForecastRequest, LoginRequest, POItemInput, ProductInput, PurchaseOrderInput,
+from ..schemas import (AdminUserUpdate, BatchInput, BulkBatchInput, BusinessCreate, BusinessStatusUpdate, CategoryInput, ChatRequest, ConvertReordersInput, ForecastRequest, LoginRequest, SignupRequest, POItemInput, ProductInput, PurchaseOrderInput,
                        ReorderAction, SaleInput, StatusUpdate, StockAdjustment, SupplierInput, TokenResponse, UserCreate, UserRead,
                        WhatIfRequest)
 from ..security import create_token, hash_password, verify_password
@@ -40,10 +40,31 @@ def sale_data(sale: Sale) -> dict:
 
 
 @api.post("/auth/login", response_model=TokenResponse, tags=["auth"])
-def login(body: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email).first()
     if not user or not user.is_active or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+    return {"access_token": create_token(user.email, user.role), "refresh_token": create_token(user.email, user.role, "refresh"), "user": user}
+
+
+@api.post("/auth/signup", response_model=TokenResponse, status_code=201, tags=["auth"])
+@limiter.limit("3/hour")
+def signup(request: Request, body: SignupRequest, db: Session = Depends(get_db)):
+    if db.query(User).filter_by(email=body.email).first():
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    business = Business(name=body.business_name.strip(), owner_email=body.email, is_active=True)
+    db.add(business)
+    db.flush()
+    db.info["business_id"] = business.id
+    user = User(email=body.email, full_name=body.full_name.strip(), password_hash=hash_password(body.password), role="business_owner", business_id=business.id, is_active=True)
+    db.add(Category(name="General", business_id=business.id))
+    db.add(Supplier(name="Default Supplier", email=body.email, business_id=business.id))
+    db.add(user)
+    db.flush()
+    audit(db, user, "self_registration", "user", user.id)
+    db.commit()
+    db.refresh(user)
     return {"access_token": create_token(user.email, user.role), "refresh_token": create_token(user.email, user.role, "refresh"), "user": user}
 
 
@@ -70,19 +91,301 @@ def me(user: User = Depends(get_current_user)):
 
 
 @api.get("/users", tags=["users"])
-def list_users(db: Session = Depends(get_db), _: User = Depends(require_roles("admin"))):
-    return [{"id": u.id, "email": u.email, "full_name": u.full_name, "role": u.role, "is_active": u.is_active} for u in db.query(User).all()]
+def list_users(db: Session = Depends(get_db), actor: User = Depends(get_current_user)):
+    if actor.role not in {"admin", "business_owner", "manager"}:
+        raise HTTPException(403, "Insufficient permissions")
+    return [{"id": u.id, "email": u.email, "full_name": u.full_name, "role": u.role, "is_active": u.is_active, "business_id": u.business_id, "business_name": u.business_name} for u in db.query(User).order_by(User.full_name).all()]
 
 
 @api.post("/users", status_code=201, tags=["users"])
-def create_user(body: UserCreate, db: Session = Depends(get_db), user: User = Depends(require_roles("admin"))):
-    if body.role not in {"admin", "manager", "staff"}:
-        raise HTTPException(422, "Role must be admin, manager, or staff")
+def create_user(body: UserCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role == "admin":
+        if body.role == "business_owner":
+            raise HTTPException(422, "Create a business and its owner through the business workspace")
+        business_id = body.business_id
+        business = db.get(Business, business_id) if business_id else None
+        if body.role != "admin" and (not business or not business.is_active):
+            raise HTTPException(422, "Choose an active business for this account")
+        if body.role == "admin" and business_id is not None:
+            raise HTTPException(422, "Super administrator accounts are not assigned to a business")
+    elif user.role == "business_owner" and body.role in {"manager", "staff"}:
+        business_id = user.business_id
+    elif user.role == "manager" and body.role == "staff":
+        business_id = user.business_id
+    else:
+        raise HTTPException(403, "You cannot create an account with that role")
     if db.query(User).filter_by(email=body.email).first():
         raise HTTPException(409, "Email already exists")
-    created = User(email=body.email, full_name=body.full_name, password_hash=hash_password(body.password), role=body.role)
+    created = User(email=body.email, full_name=body.full_name, password_hash=hash_password(body.password), role=body.role, business_id=business_id)
     db.add(created); db.flush(); audit(db, user, "create", "user", created.id); db.commit()
-    return {"id": created.id, "email": created.email, "full_name": created.full_name, "role": created.role, "is_active": created.is_active}
+    return {"id": created.id, "email": created.email, "full_name": created.full_name, "role": created.role, "is_active": created.is_active, "business_id": created.business_id, "business_name": created.business_name}
+
+
+@api.put("/admin/users/{user_id}", tags=["administrator"])
+def update_admin_user(user_id: int, body: AdminUserUpdate, db: Session = Depends(get_db), actor: User = Depends(require_roles("admin"))):
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+    if target.id == actor.id and (body.role != "admin" or not body.is_active):
+        raise HTTPException(409, "You cannot remove your own administrator access")
+    next_business_id = None if body.role == "admin" else (body.business_id if body.business_id is not None else target.business_id)
+    next_business = db.get(Business, next_business_id) if next_business_id else None
+    if body.role != "admin" and (not next_business or not next_business.is_active):
+        raise HTTPException(422, "Choose an active business for this account")
+    if target.role == "admin" and target.is_active and (body.role != "admin" or not body.is_active):
+        active_admins = db.query(User).filter_by(role="admin", is_active=True).count()
+        if active_admins <= 1:
+            raise HTTPException(409, "The last active administrator cannot be disabled or demoted")
+    if target.role == "business_owner" and target.is_active and (body.role != "business_owner" or not body.is_active or next_business_id != target.business_id):
+        other_owners = db.query(User).filter(User.business_id == target.business_id, User.role == "business_owner", User.is_active.is_(True), User.id != target.id).count()
+        if other_owners == 0:
+            raise HTTPException(409, "The last active business owner cannot be disabled or reassigned")
+    previous = {"role": target.role, "is_active": target.is_active, "business_id": target.business_id}
+    target.role = body.role
+    target.is_active = body.is_active
+    target.business_id = next_business_id
+    audit(db, actor, "admin_update", "user", target.id, {"before": previous, "after": {"role": body.role, "is_active": body.is_active, "business_id": next_business_id}})
+    db.commit()
+    return {"id": target.id, "email": target.email, "full_name": target.full_name, "role": target.role, "is_active": target.is_active, "business_id": target.business_id, "business_name": target.business_name}
+
+
+@api.get("/admin/overview", tags=["administrator"])
+def admin_overview(db: Session = Depends(get_db), _: User = Depends(require_roles("admin"))):
+    counts = {
+        "businesses": db.query(Business).count(),
+        "accounts": db.query(User).count(),
+        "products": db.query(Product).count(),
+        "sales": db.query(Sale).count(),
+        "inventory_movements": db.query(InventoryTransaction).count(),
+        "batches": db.query(InventoryBatch).count(),
+        "suppliers": db.query(Supplier).count(),
+        "categories": db.query(Category).count(),
+        "purchase_orders": db.query(PurchaseOrder).count(),
+        "purchase_order_items": db.query(PurchaseOrderItem).count(),
+        "forecasts": db.query(Forecast).count(),
+        "reorder_recommendations": db.query(ReorderRecommendation).count(),
+        "waste_predictions": db.query(WastePrediction).count(),
+        "expiry_alerts": db.query(ExpiryAlert).count(),
+        "knowledge_documents": db.query(KnowledgeDocument).count(),
+        "knowledge_chunks": db.query(KnowledgeChunk).count(),
+        "chat_conversations": db.query(ChatbotConversation).count(),
+        "chat_messages": db.query(ChatbotMessage).count(),
+        "audit_events": db.query(AuditLog).count(),
+        "model_runs": db.query(ModelRun).count(),
+    }
+    active_accounts = db.query(User).filter_by(is_active=True).count()
+    revenue = db.query(func.coalesce(func.sum(Sale.revenue), 0)).scalar() or 0
+    dialect = engine.dialect.name
+    if dialect == "sqlite":
+        storage_bytes = (db.execute(text("PRAGMA page_count")).scalar() or 0) * (db.execute(text("PRAGMA page_size")).scalar() or 0)
+    elif dialect == "postgresql":
+        storage_bytes = db.execute(text("SELECT pg_database_size(current_database())")).scalar() or 0
+    else:
+        storage_bytes = None
+    return {"counts": counts, "active_accounts": active_accounts, "sales_revenue": float(revenue), "database_engine": dialect, "database_bytes": storage_bytes}
+
+
+@api.get("/admin/dashboard", tags=["administrator"])
+def admin_dashboard(
+    start: date | None = None,
+    end: date | None = None,
+    business_id: int | None = None,
+    category: str | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles("admin")),
+):
+    end = end or date.today()
+    start = start or (end - timedelta(days=30))
+    if start > end:
+        raise HTTPException(422, "Start date must be before end date")
+    if business_id is not None and not db.get(Business, business_id):
+        raise HTTPException(404, "Business workspace not found")
+
+    products_query = db.query(Product).filter(Product.status == "active")
+    if business_id is not None:
+        products_query = products_query.filter(Product.business_id == business_id)
+    if category:
+        products_query = products_query.join(Category).filter(Category.name == category)
+    products = products_query.all()
+    product_ids = [product.id for product in products]
+
+    sales_query = db.query(Sale).join(Product, Sale.product_id == Product.id).filter(Sale.date >= start, Sale.date <= end)
+    if business_id is not None:
+        sales_query = sales_query.filter(Product.business_id == business_id)
+    if category:
+        sales_query = sales_query.join(Category, Product.category_id == Category.id).filter(Category.name == category)
+    revenue = float(sales_query.with_entities(func.coalesce(func.sum(Sale.revenue), 0)).scalar() or 0)
+    trend_rows = sales_query.with_entities(Sale.date, func.sum(Sale.revenue), func.sum(Sale.quantity_sold)).group_by(Sale.date).order_by(Sale.date).all()
+    category_rows = db.query(Category.name, func.sum(Sale.revenue)).join(Product, Product.category_id == Category.id).join(Sale, Sale.product_id == Product.id).filter(Sale.date >= start, Sale.date <= end)
+    if business_id is not None:
+        category_rows = category_rows.filter(Product.business_id == business_id)
+    if category:
+        category_rows = category_rows.filter(Category.name == category)
+    category_rows = category_rows.group_by(Category.name).order_by(func.sum(Sale.revenue).desc()).all()
+
+    product_scope = Product.id.in_(product_ids) if product_ids else False
+    low_stock = sum(product.current_stock <= product.reorder_point for product in products)
+    expected_demand = db.query(func.coalesce(func.sum(Sale.quantity_sold), 0)).join(Product, Sale.product_id == Product.id).filter(
+        Sale.date >= end - timedelta(days=27), Sale.date <= end, product_scope
+    ).scalar() or 0
+    expected_demand = round(float(expected_demand) / 4)
+    waste_query = db.query(func.coalesce(func.sum(WastePrediction.estimated_value), 0)).filter(WastePrediction.calculated_for == date.today(), WastePrediction.product_id.in_(product_ids) if product_ids else False)
+    inventory_value = sum(product.current_stock * float(product.price) for product in products)
+    reorder_query = db.query(func.count(ReorderRecommendation.id)).join(Product, ReorderRecommendation.product_id == Product.id).filter(ReorderRecommendation.status == "draft", product_scope)
+    accounts_query = db.query(User).filter(User.is_active.is_(True))
+    if business_id is not None:
+        accounts_query = accounts_query.filter(User.business_id == business_id)
+
+    business_rows = db.query(Business).order_by(Business.name).all()
+    business_performance = []
+    for business in business_rows:
+        branch_products = db.query(Product).filter(Product.business_id == business.id, Product.status == "active").all()
+        branch_sales = db.query(func.coalesce(func.sum(Sale.revenue), 0), func.count(Sale.id)).join(Product, Sale.product_id == Product.id).filter(Product.business_id == business.id, Sale.date >= start, Sale.date <= end)
+        if category:
+            branch_sales = branch_sales.join(Category, Product.category_id == Category.id).filter(Category.name == category)
+        branch_revenue, branch_transactions = branch_sales.one()
+        business_performance.append({
+            "id": business.id, "name": business.name, "owner_email": business.owner_email,
+            "is_active": business.is_active,
+            "accounts": db.query(User).filter(User.business_id == business.id).count(),
+            "products": len(branch_products),
+            "low_stock": sum(p.current_stock <= p.reorder_point for p in branch_products),
+            "transactions": branch_transactions,
+            "revenue": float(branch_revenue or 0),
+        })
+
+    return {
+        "last_updated": datetime.utcnow(), "range": {"start": start, "end": end},
+        "selected_business_id": business_id, "selected_category": category,
+        "businesses": [{"id": b.id, "name": b.name, "is_active": b.is_active} for b in business_rows],
+        "categories": [row[0] for row in db.query(Category.name).distinct().order_by(Category.name).all()],
+        "business_performance": business_performance,
+        "kpis": {
+            "businesses": sum(1 for b in business_rows if b.is_active),
+            "accounts": accounts_query.count(),
+            "products": len(products), "low_stock": low_stock, "revenue": revenue,
+            "recommended_orders": reorder_query.scalar() or 0, "expected_demand": expected_demand,
+            "predicted_waste_value": float(waste_query.scalar() or 0), "inventory_value": inventory_value,
+        },
+        "sales_trend": [{"date": day, "revenue": float(amount or 0), "units": int(units or 0)} for day, amount, units in trend_rows],
+        "category_sales": [{"name": name, "value": float(amount or 0)} for name, amount in category_rows],
+    }
+
+
+@api.get("/admin/businesses", tags=["administrator"])
+def admin_businesses(db: Session = Depends(get_db), _: User = Depends(require_roles("admin"))):
+    rows = db.query(Business).order_by(Business.created_at.desc()).all()
+    return [{
+        "id": business.id, "name": business.name, "owner_email": business.owner_email,
+        "is_active": business.is_active, "created_at": business.created_at,
+        "accounts": db.query(User).filter_by(business_id=business.id).count(),
+        "products": db.query(Product).filter_by(business_id=business.id).count(),
+        "sales": db.query(Sale).filter_by(business_id=business.id).count(),
+    } for business in rows]
+
+
+@api.post("/admin/businesses", status_code=201, tags=["administrator"])
+def create_business(body: BusinessCreate, db: Session = Depends(get_db), actor: User = Depends(require_roles("admin"))):
+    if db.query(User).filter_by(email=body.owner_email).first():
+        raise HTTPException(409, "An account with this owner email already exists")
+    business = Business(name=body.name.strip(), owner_email=body.owner_email, is_active=True)
+    db.add(business)
+    db.flush()
+    owner = User(email=body.owner_email, full_name=body.owner_name.strip(), password_hash=hash_password(body.owner_password), role="business_owner", business_id=business.id)
+    db.add(owner)
+    db.add(Category(name="General", business_id=business.id))
+    db.add(Supplier(name="Default Supplier", email=body.owner_email, business_id=business.id))
+    db.flush()
+    audit(db, actor, "create", "business", business.id, {"name": business.name, "owner_email": business.owner_email})
+    db.commit()
+    return {"id": business.id, "name": business.name, "owner_email": business.owner_email, "is_active": business.is_active, "created_at": business.created_at, "accounts": 1, "products": 0, "sales": 0}
+
+
+@api.put("/admin/businesses/{business_id}", tags=["administrator"])
+def update_business_status(business_id: int, body: BusinessStatusUpdate, db: Session = Depends(get_db), actor: User = Depends(require_roles("admin"))):
+    business = db.get(Business, business_id)
+    if not business:
+        raise HTTPException(404, "Business not found")
+    business.is_active = body.is_active
+    audit(db, actor, "business_status", "business", business.id, {"is_active": body.is_active})
+    db.commit()
+    return {"id": business.id, "name": business.name, "owner_email": business.owner_email, "is_active": business.is_active}
+
+
+@api.get("/admin/notifications", tags=["administrator"])
+def admin_notifications(db: Session = Depends(get_db), _: User = Depends(require_roles("admin"))):
+    alerts = []
+    cutoff = date.today() + timedelta(days=7)
+    for business in db.query(Business).order_by(Business.name).all():
+        low_stock = db.query(Product).filter(Product.business_id == business.id, Product.status == "active", Product.current_stock <= Product.reorder_point).count()
+        expiring = db.query(Product).filter(Product.business_id == business.id, Product.expiry_date.is_not(None), Product.expiry_date <= cutoff).count()
+        open_orders = db.query(PurchaseOrder).filter(PurchaseOrder.business_id == business.id, PurchaseOrder.status.in_(["draft", "approved", "ordered"])).count()
+        if not business.is_active:
+            alerts.append({"id": f"business-{business.id}", "severity": "critical", "business_id": business.id, "business_name": business.name, "kind": "Workspace disabled", "count": 1})
+        if low_stock:
+            alerts.append({"id": f"stock-{business.id}", "severity": "warning", "business_id": business.id, "business_name": business.name, "kind": "Low-stock products", "count": low_stock})
+        if expiring:
+            alerts.append({"id": f"expiry-{business.id}", "severity": "warning", "business_id": business.id, "business_name": business.name, "kind": "Products expiring within 7 days", "count": expiring})
+        if open_orders:
+            alerts.append({"id": f"orders-{business.id}", "severity": "info", "business_id": business.id, "business_name": business.name, "kind": "Open purchase orders", "count": open_orders})
+    return alerts
+
+
+@api.get("/admin/accounts", tags=["administrator"])
+def admin_accounts(db: Session = Depends(get_db), _: User = Depends(require_roles("admin"))):
+    def grouped_counts(column):
+        return dict(db.query(column, func.count()).group_by(column).all())
+    audit_counts = grouped_counts(AuditLog.user_id)
+    movement_counts = grouped_counts(InventoryTransaction.user_id)
+    conversation_counts = grouped_counts(ChatbotConversation.user_id)
+    order_counts = grouped_counts(PurchaseOrder.created_by)
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    return [{
+        "id": user.id, "email": user.email, "full_name": user.full_name, "role": user.role,
+        "business_id": user.business_id, "business_name": user.business_name,
+        "is_active": user.is_active, "created_at": user.created_at,
+        "audit_events": audit_counts.get(user.id, 0),
+        "inventory_movements": movement_counts.get(user.id, 0),
+        "chat_conversations": conversation_counts.get(user.id, 0),
+        "purchase_orders": order_counts.get(user.id, 0),
+    } for user in users]
+
+
+@api.get("/admin/activity", tags=["administrator"])
+def admin_activity(limit: int = Query(100, ge=1, le=500), db: Session = Depends(get_db), _: User = Depends(require_roles("admin"))):
+    rows = db.query(AuditLog, User.full_name, User.email).outerjoin(User, AuditLog.user_id == User.id).order_by(AuditLog.created_at.desc()).limit(limit).all()
+    return [{
+        "id": event.id, "actor": full_name or "System", "actor_email": email or "",
+        "action": event.action, "entity": event.entity, "entity_id": event.entity_id,
+        "details": event.payload or {}, "created_at": event.created_at,
+    } for event, full_name, email in rows]
+
+
+@api.get("/admin/records", tags=["administrator"])
+def admin_records(
+    resource: str = Query(...), offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db), _: User = Depends(require_roles("admin")),
+):
+    models = {
+        "accounts": User, "products": Product, "sales": Sale, "inventory_movements": InventoryTransaction,
+        "batches": InventoryBatch, "categories": Category, "suppliers": Supplier, "purchase_orders": PurchaseOrder,
+        "purchase_order_items": PurchaseOrderItem, "forecasts": Forecast, "reorder_recommendations": ReorderRecommendation,
+        "waste_predictions": WastePrediction, "expiry_alerts": ExpiryAlert, "knowledge_documents": KnowledgeDocument,
+        "knowledge_chunks": KnowledgeChunk, "chat_conversations": ChatbotConversation, "chat_messages": ChatbotMessage,
+        "audit_events": AuditLog, "model_runs": ModelRun,
+    }
+    model = models.get(resource)
+    if not model:
+        raise HTTPException(422, "Unknown administrator data resource")
+    query = db.query(model)
+    total = query.count()
+    order_column = model.date if resource == "sales" else model.id
+    rows = query.order_by(order_column.desc()).offset(offset).limit(limit).all()
+    columns = [column for column in model.__table__.columns if not (resource == "accounts" and column.key == "password_hash")]
+    return {
+        "resource": resource, "total": total, "offset": offset, "limit": limit,
+        "items": [{column.key: getattr(row, column.key) for column in columns} for row in rows],
+    }
 
 
 @api.get("/categories", tags=["catalog"])

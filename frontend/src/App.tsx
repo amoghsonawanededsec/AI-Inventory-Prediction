@@ -4,20 +4,25 @@ import { api, clearSession, getToken } from './lib/api'
 import type { User } from './types'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
+import AdminDashboardPage from './pages/AdminDashboardPage'
 import ProductsPage from './pages/ProductsPage'
 import DataPage from './pages/DataPage'
 import ChatPage from './pages/ChatPage'
+import DataInputPage from './pages/DataInputPage'
+import SignupPage from './pages/SignupPage'
+import AdminPage from './pages/AdminPage'
 
 import ErrorBoundary from './components/ErrorBoundary'
 
 const VALID_PAGES: PageKey[] = [
-  'dashboard', 'products', 'inventory', 'sales', 'forecasts',
+  'dashboard', 'data-input', 'products', 'inventory', 'sales', 'forecasts',
   'waste', 'reorders', 'orders', 'suppliers', 'analytics',
-  'chat', 'knowledge', 'models', 'users', 'settings'
+  'chat', 'knowledge', 'models', 'admin', 'users', 'settings'
 ]
 
 function App() {
   const [user, setUser] = useState<User | null>(null)
+  const [authPage, setAuthPage] = useState<'login' | 'signup'>('login')
   const [page, setPageState] = useState<PageKey>(() => {
     const hash = window.location.hash.replace(/^#\/?/, '') as PageKey
     return VALID_PAGES.includes(hash) ? hash : 'dashboard'
@@ -55,16 +60,24 @@ function App() {
   }
 
   if (checking) return <div className="boot-screen">Connecting securely to Stockwise AI…</div>
-  if (!user) return <LoginPage onLogin={setUser}/>
+  if (!user) return authPage === 'signup'
+    ? <SignupPage onSignup={setUser} onBack={() => setAuthPage('login')}/>
+    : <LoginPage onLogin={setUser} onCreateAccount={() => setAuthPage('signup')}/>
 
+  const activePage = user.role === 'admin'
+    ? (page === 'admin' ? 'admin' : 'dashboard')
+    : (page === 'admin' ? 'dashboard' : page)
   let view: React.ReactNode
-  if (page === 'dashboard') view = <DashboardPage onNavigate={setPage}/>
-  else if (page === 'products') view = <ProductsPage/>
-  else if (page === 'chat') view = <ChatPage/>
-  else view = <DataPage kind={page}/>
+  if (activePage === 'dashboard' && user.role === 'admin') view = <AdminDashboardPage onNavigate={setPage}/>
+  else if (activePage === 'dashboard') view = <DashboardPage onNavigate={setPage}/>
+  else if (activePage === 'admin' && user.role === 'admin') view = <AdminPage currentUser={user}/>
+  else if (activePage === 'data-input') view = <DataInputPage/>
+  else if (activePage === 'products') view = <ProductsPage/>
+  else if (activePage === 'chat') view = <ChatPage/>
+  else view = <DataPage kind={activePage} currentUser={user}/>
 
   return (
-    <Layout page={page} setPage={setPage} user={user} onLogout={logout}>
+    <Layout page={activePage} setPage={setPage} user={user} onLogout={logout}>
       <ErrorBoundary>
         {view}
       </ErrorBoundary>

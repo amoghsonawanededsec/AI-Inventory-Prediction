@@ -100,7 +100,7 @@ function format(value: unknown, key: string) {
   return String(value)
 }
 
-export default function DataPage({ kind }: { kind: string }) {
+export default function DataPage({ kind, currentUser }: { kind: string; currentUser?: import('../types').User }) {
   const [items, setItems] = useState<Item[]>([])
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -901,8 +901,8 @@ export default function DataPage({ kind }: { kind: string }) {
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Role</label>
                 <select name="role" required style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }}>
                   <option value="staff">Staff (Operational &amp; Chatbot)</option>
-                  <option value="manager">Inventory Manager (Approvals &amp; Orders)</option>
-                  <option value="admin">Admin (Full Control &amp; System Configuration)</option>
+                  {(currentUser?.role === 'admin' || currentUser?.role === 'business_owner') && <option value="manager">Manager (Approvals &amp; Orders)</option>}
+                  {currentUser?.role === 'admin' && <option value="admin">Super administrator</option>}
                 </select>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: '0.5rem' }}>

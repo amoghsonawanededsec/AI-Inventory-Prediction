@@ -1,13 +1,27 @@
 from datetime import date, datetime
 from typing import List, Optional
+from sqlalchemy import event
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship, with_loader_criteria
 from .db import Base
 
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Business(Base):
+    __tablename__ = "businesses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(180), index=True)
+    owner_email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class BusinessScoped:
+    business_id: Mapped[Optional[int]] = mapped_column(ForeignKey("businesses.id"), nullable=True, index=True)
 
 
 class Role(Base):
@@ -17,7 +31,7 @@ class Role(Base):
     description: Mapped[str] = mapped_column(String(250), default="")
 
 
-class User(Base, TimestampMixin):
+class User(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
@@ -25,30 +39,37 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(40), default="staff", index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    business: Mapped[Optional[Business]] = relationship()
+
+    @property
+    def business_name(self) -> str | None:
+        return self.business.name if self.business else None
 
 
-class Category(Base):
+class Category(BusinessScoped, Base):
     __tablename__ = "categories"
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(100), unique=True)
+    name: Mapped[str] = mapped_column(String(100), index=True)
+    __table_args__ = (UniqueConstraint("business_id", "name", name="uq_category_business_name"),)
 
 
-class Supplier(Base, TimestampMixin):
+class Supplier(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "suppliers"
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(150), unique=True)
+    name: Mapped[str] = mapped_column(String(150), index=True)
     email: Mapped[str] = mapped_column(String(255), default="")
     phone: Mapped[str] = mapped_column(String(40), default="")
     lead_time_days: Mapped[int] = mapped_column(Integer, default=3)
     minimum_order_quantity: Mapped[int] = mapped_column(Integer, default=1)
     reliability_score: Mapped[float] = mapped_column(Float, default=0.9)
     products: Mapped[List["Product"]] = relationship(back_populates="supplier")
+    __table_args__ = (UniqueConstraint("business_id", "name", name="uq_supplier_business_name"),)
 
 
-class Product(Base, TimestampMixin):
+class Product(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "products"
     id: Mapped[int] = mapped_column(primary_key=True)
-    sku: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    sku: Mapped[str] = mapped_column(String(50), index=True)
     name: Mapped[str] = mapped_column(String(180), index=True)
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"))
     unit: Mapped[str] = mapped_column(String(30), default="unit")
@@ -66,9 +87,10 @@ class Product(Base, TimestampMixin):
     category: Mapped["Category"] = relationship()
     supplier: Mapped["Supplier"] = relationship(back_populates="products")
     batches: Mapped[List["InventoryBatch"]] = relationship(back_populates="product", cascade="all, delete-orphan")
+    __table_args__ = (UniqueConstraint("business_id", "sku", name="uq_product_business_sku"),)
 
 
-class InventoryBatch(Base, TimestampMixin):
+class InventoryBatch(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "inventory_batches"
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
@@ -79,7 +101,7 @@ class InventoryBatch(Base, TimestampMixin):
     product: Mapped["Product"] = relationship(back_populates="batches")
 
 
-class InventoryTransaction(Base, TimestampMixin):
+class InventoryTransaction(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "inventory_transactions"
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
@@ -89,7 +111,7 @@ class InventoryTransaction(Base, TimestampMixin):
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
-class Sale(Base):
+class Sale(BusinessScoped, Base):
     __tablename__ = "sales"
     id: Mapped[int] = mapped_column(primary_key=True)
     date: Mapped[date] = mapped_column(Date, index=True)
@@ -104,7 +126,7 @@ class Sale(Base):
     revenue: Mapped[float] = mapped_column(Numeric(12, 2))
 
 
-class Forecast(Base, TimestampMixin):
+class Forecast(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "forecasts"
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
@@ -116,7 +138,7 @@ class Forecast(Base, TimestampMixin):
     __table_args__ = (UniqueConstraint("product_id", "forecast_date", "model_name", name="uq_forecast"),)
 
 
-class WastePrediction(Base, TimestampMixin):
+class WastePrediction(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "waste_predictions"
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
@@ -127,7 +149,7 @@ class WastePrediction(Base, TimestampMixin):
     calculated_for: Mapped[date] = mapped_column(Date, default=date.today)
 
 
-class ExpiryAlert(Base, TimestampMixin):
+class ExpiryAlert(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "expiry_alerts"
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
@@ -137,7 +159,7 @@ class ExpiryAlert(Base, TimestampMixin):
     recommendation: Mapped[str] = mapped_column(String(400))
 
 
-class ReorderRecommendation(Base, TimestampMixin):
+class ReorderRecommendation(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "reorder_recommendations"
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
@@ -147,7 +169,7 @@ class ReorderRecommendation(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(20), default="draft")
 
 
-class PurchaseOrder(Base, TimestampMixin):
+class PurchaseOrder(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "purchase_orders"
     id: Mapped[int] = mapped_column(primary_key=True)
     supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))
@@ -157,7 +179,7 @@ class PurchaseOrder(Base, TimestampMixin):
     items: Mapped[List["PurchaseOrderItem"]] = relationship(back_populates="purchase_order", cascade="all, delete-orphan")
 
 
-class PurchaseOrderItem(Base):
+class PurchaseOrderItem(BusinessScoped, Base):
     __tablename__ = "purchase_order_items"
     id: Mapped[int] = mapped_column(primary_key=True)
     purchase_order_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"))
@@ -167,14 +189,14 @@ class PurchaseOrderItem(Base):
     purchase_order: Mapped["PurchaseOrder"] = relationship(back_populates="items")
 
 
-class KnowledgeDocument(Base, TimestampMixin):
+class KnowledgeDocument(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "knowledge_documents"
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(180))
     body: Mapped[str] = mapped_column(Text)
 
 
-class KnowledgeChunk(Base):
+class KnowledgeChunk(BusinessScoped, Base):
     __tablename__ = "knowledge_chunks"
     id: Mapped[int] = mapped_column(primary_key=True)
     document_id: Mapped[int] = mapped_column(ForeignKey("knowledge_documents.id"))
@@ -182,14 +204,14 @@ class KnowledgeChunk(Base):
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
-class ChatbotConversation(Base, TimestampMixin):
+class ChatbotConversation(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "chatbot_conversations"
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     title: Mapped[str] = mapped_column(String(150), default="New conversation")
 
 
-class ChatbotMessage(Base):
+class ChatbotMessage(BusinessScoped, Base):
     __tablename__ = "chatbot_messages"
     id: Mapped[int] = mapped_column(primary_key=True)
     conversation_id: Mapped[int] = mapped_column(ForeignKey("chatbot_conversations.id"))
@@ -200,7 +222,7 @@ class ChatbotMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
-class ModelRun(Base, TimestampMixin):
+class ModelRun(BusinessScoped, Base, TimestampMixin):
     __tablename__ = "model_runs"
     id: Mapped[int] = mapped_column(primary_key=True)
     model_name: Mapped[str] = mapped_column(String(100))
@@ -214,7 +236,7 @@ class ModelRun(Base, TimestampMixin):
     horizon_days: Mapped[int] = mapped_column(Integer)
 
 
-class AuditLog(Base):
+class AuditLog(BusinessScoped, Base):
     __tablename__ = "audit_logs"
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
@@ -223,3 +245,32 @@ class AuditLog(Base):
     entity_id: Mapped[str] = mapped_column(String(100))
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+@event.listens_for(Session, "do_orm_execute")
+def scope_business_queries(execute_state) -> None:
+    session = execute_state.session
+    business_id = session.info.get("business_id")
+    if execute_state.is_select and business_id is not None and not session.info.get("super_admin"):
+        execute_state.statement = execute_state.statement.options(
+            with_loader_criteria(BusinessScoped, lambda row: row.business_id == business_id, include_aliases=True)
+        )
+
+
+@event.listens_for(Session, "before_flush")
+def assign_business_to_new_records(session: Session, _flush_context, _instances) -> None:
+    business_id = session.info.get("business_id")
+    if session.info.get("super_admin"):
+        for row in session.new:
+            if isinstance(row, BusinessScoped) and row.business_id is None and not (isinstance(row, User) and row.role == "admin") and not isinstance(row, AuditLog):
+                raise ValueError("Choose a business workspace before creating tenant data")
+        return
+    if business_id is None:
+        return
+    for row in session.new:
+        if isinstance(row, BusinessScoped):
+            if isinstance(row, User) and row.role == "admin":
+                continue
+            if row.business_id not in (None, business_id):
+                raise ValueError("Cannot create a record for another business")
+            row.business_id = business_id
