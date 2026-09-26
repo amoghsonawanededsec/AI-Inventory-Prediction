@@ -1,17 +1,19 @@
 from datetime import date, datetime, timedelta
 from io import StringIO
 import csv
+import uuid
+from decimal import Decimal, ROUND_HALF_UP
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_, text
+from sqlalchemy import func, or_, text, update
 from sqlalchemy.orm import Session
 from ..db import engine, get_db
 from ..dependencies import get_current_user, require_roles
-from ..models import (AuditLog, Business, Category, ChatbotConversation, ChatbotMessage, ExpiryAlert, Forecast, InventoryBatch, InventoryTransaction,
+from ..models import (AuditLog, Business, Category, ChatbotConversation, ChatbotMessage, CheckoutItem, CheckoutTransaction, ExpiryAlert, Forecast, InventoryBatch, InventoryTransaction,
                       KnowledgeChunk, KnowledgeDocument, ModelRun, Product, PurchaseOrder, PurchaseOrderItem, ReorderRecommendation,
                       Sale, Supplier, User, WastePrediction)
-from ..schemas import (AdminUserUpdate, BatchInput, BulkBatchInput, BusinessCreate, BusinessStatusUpdate, CategoryInput, ChatRequest, ConvertReordersInput, ForecastRequest, LoginRequest, SignupRequest, POItemInput, ProductInput, PurchaseOrderInput,
-                       ReorderAction, SaleInput, StatusUpdate, StockAdjustment, SupplierInput, TokenResponse, UserCreate, UserRead,
+from ..schemas import (AdminUserUpdate, BatchInput, BulkBatchInput, BusinessCreate, BusinessStatusUpdate, CategoryInput, ChatRequest, CheckoutInput, ConvertReordersInput, ForecastRequest, LoginRequest, SignupRequest, POItemInput, ProductInput, PurchaseOrderInput,
+                       ReorderAction, SaleInput, StatusUpdate, StockAdjustment, SupplierInput, TokenResponse, UserCreate, UserRead, WeightStockAdjustment,
                        WhatIfRequest)
 from ..security import create_token, hash_password, verify_password
 from ..services.chatbot import answer as chatbot_answer
@@ -31,7 +33,28 @@ def product_data(product: Product) -> dict:
             "unit": product.unit, "price": float(product.price), "supplier_id": product.supplier_id, "supplier_name": product.supplier.name if product.supplier else None,
             "manufacturing_date": product.manufacturing_date, "expiry_date": product.expiry_date, "current_stock": product.current_stock, "minimum_stock": product.minimum_stock,
             "maximum_stock": product.maximum_stock, "reorder_point": product.reorder_point, "safety_stock": product.safety_stock, "lead_time_days": product.lead_time_days,
-            "status": product.status, "created_at": product.created_at, "updated_at": product.updated_at}
+            "status": product.status, "is_weight_based": product.is_weight_based, "category_is_grocery": bool(product.category and product.category.is_grocery),
+            "weight_unit": product.weight_unit or (product.category.default_weight_unit if product.category else "kg"),
+            "default_weight_g": product.default_weight_g or (product.category.default_weight_g if product.category else 1000),
+            "weight_increment_g": product.weight_increment_g or (product.category.weight_increment_g if product.category else 500),
+            "minimum_weight_g": product.minimum_weight_g or (product.category.minimum_weight_g if product.category else 100),
+            "maximum_weight_g": product.maximum_weight_g or (product.category.maximum_weight_g if product.category else 100000),
+            "weight_stock_g": product.weight_stock_g, "created_at": product.created_at, "updated_at": product.updated_at}
+
+
+def validate_product_weight(body: ProductInput, category: Category) -> None:
+    if body.is_weight_based and not category.is_grocery:
+        raise HTTPException(422, "Weight-based selling is available only for grocery categories")
+    if body.is_weight_based and body.weight_stock_g is None:
+        raise HTTPException(422, "Set available weight stock in grams for weight-based products")
+    if not body.is_weight_based and any(value is not None for value in (body.weight_unit, body.default_weight_g, body.weight_increment_g, body.minimum_weight_g, body.maximum_weight_g, body.weight_stock_g)):
+        raise HTTPException(422, "Weight settings can only be set for weight-based grocery products")
+    if body.is_weight_based:
+        minimum = body.minimum_weight_g or category.minimum_weight_g
+        maximum = body.maximum_weight_g or category.maximum_weight_g
+        default = body.default_weight_g or category.default_weight_g
+        if maximum < minimum or not minimum <= default <= maximum:
+            raise HTTPException(422, "Default and maximum weights must be within the configured minimum and maximum")
 
 
 def sale_data(sale: Sale) -> dict:
@@ -390,15 +413,32 @@ def admin_records(
 
 @api.get("/categories", tags=["catalog"])
 def list_categories(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return [{"id": c.id, "name": c.name} for c in db.query(Category).order_by(Category.name)]
+    return [{"id": c.id, "name": c.name, "is_grocery": c.is_grocery, "default_weight_unit": c.default_weight_unit,
+             "default_weight_g": c.default_weight_g, "weight_increment_g": c.weight_increment_g,
+             "minimum_weight_g": c.minimum_weight_g, "maximum_weight_g": c.maximum_weight_g}
+            for c in db.query(Category).order_by(Category.name)]
 
 
 @api.post("/categories", status_code=201, tags=["catalog"])
 def create_category(body: CategoryInput, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "manager"))):
     if db.query(Category).filter(func.lower(Category.name) == body.name.lower()).first():
         raise HTTPException(409, "Category already exists")
-    category = Category(name=body.name); db.add(category); db.flush(); audit(db, user, "create", "category", category.id); db.commit()
-    return {"id": category.id, "name": category.name}
+    category = Category(**body.model_dump()); db.add(category); db.flush(); audit(db, user, "create", "category", category.id); db.commit()
+    return {"id": category.id, "name": category.name, **body.model_dump()}
+
+
+@api.put("/categories/{category_id}", tags=["catalog"])
+def update_category(category_id: int, body: CategoryInput, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "manager"))):
+    category = db.get(Category, category_id)
+    if not category:
+        raise HTTPException(404, "Category not found")
+    duplicate = db.query(Category).filter(func.lower(Category.name) == body.name.lower(), Category.id != category_id).first()
+    if duplicate:
+        raise HTTPException(409, "Category already exists")
+    for field, value in body.model_dump().items():
+        setattr(category, field, value)
+    audit(db, user, "update", "category", category.id); db.commit()
+    return {"id": category.id, **body.model_dump()}
 
 
 @api.get("/suppliers", tags=["suppliers"])
@@ -434,7 +474,9 @@ def list_products(q: str | None = None, category_id: int | None = None, low_stoc
 @api.post("/products", status_code=201, tags=["products"])
 def create_product(body: ProductInput, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "manager"))):
     if db.query(Product).filter_by(sku=body.sku).first(): raise HTTPException(409, "SKU already exists")
-    if not db.get(Category, body.category_id) or not db.get(Supplier, body.supplier_id): raise HTTPException(422, "Category or supplier does not exist")
+    category = db.get(Category, body.category_id)
+    if not category or not db.get(Supplier, body.supplier_id): raise HTTPException(422, "Category or supplier does not exist")
+    validate_product_weight(body, category)
     item = Product(**body.model_dump()); db.add(item); db.flush(); audit(db, user, "create", "product", item.id); db.commit(); db.refresh(item); return product_data(item)
 
 
@@ -451,6 +493,9 @@ def get_product(product_id: int, db: Session = Depends(get_db), _: User = Depend
 def update_product(product_id: int, body: ProductInput, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "manager"))):
     product = db.get(Product, product_id)
     if not product: raise HTTPException(404, "Product not found")
+    category = db.get(Category, body.category_id)
+    if not category: raise HTTPException(422, "Category does not exist")
+    validate_product_weight(body, category)
     for field, value in body.model_dump().items(): setattr(product, field, value)
     audit(db, user, "update", "product", product.id); db.commit(); db.refresh(product); return product_data(product)
 
@@ -473,11 +518,27 @@ def adjust_stock(product_id: int, body: StockAdjustment, db: Session = Depends(g
     return {"product_id": product_id, "current_stock": product.current_stock, "transaction_id": tx.id}
 
 
+@api.post("/inventory/{product_id}/weight-adjust", tags=["inventory"])
+def adjust_weight_stock(product_id: int, body: WeightStockAdjustment, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    product = db.get(Product, product_id)
+    if not product: raise HTTPException(404, "Product not found")
+    if not product.category or not product.category.is_grocery or not product.is_weight_based:
+        raise HTTPException(422, "Weight stock adjustments are only available for weight-based grocery products")
+    new_balance = (product.weight_stock_g or 0) + body.weight_delta_g
+    if new_balance < 0: raise HTTPException(422, "Adjustment would produce negative weight stock")
+    product.weight_stock_g = new_balance
+    tx = InventoryTransaction(product_id=product_id, quantity_delta=0, weight_delta_g=body.weight_delta_g,
+                              transaction_type=body.transaction_type, note=body.note, user_id=user.id)
+    db.add(tx); audit(db, user, "weight_stock_adjustment", "product", product.id,
+                      {"weight_delta_g": body.weight_delta_g, "type": body.transaction_type}); db.commit()
+    return {"product_id": product_id, "weight_stock_g": product.weight_stock_g, "transaction_id": tx.id}
+
+
 @api.get("/inventory/transactions", tags=["inventory"])
 def list_transactions(product_id: int | None = None, limit: int = Query(100, ge=1, le=500), db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     query = db.query(InventoryTransaction)
     if product_id: query = query.filter_by(product_id=product_id)
-    return [{"id": t.id, "product_id": t.product_id, "quantity_delta": t.quantity_delta, "transaction_type": t.transaction_type, "note": t.note, "created_at": t.created_at} for t in query.order_by(InventoryTransaction.created_at.desc()).limit(limit)]
+    return [{"id": t.id, "product_id": t.product_id, "quantity_delta": t.quantity_delta, "weight_delta_g": t.weight_delta_g, "transaction_type": t.transaction_type, "note": t.note, "created_at": t.created_at} for t in query.order_by(InventoryTransaction.created_at.desc()).limit(limit)]
 
 
 @api.post("/inventory/batches", status_code=201, tags=["inventory"])
@@ -541,6 +602,153 @@ def list_batches(product_id: int | None = None, db: Session = Depends(get_db), _
         "days_remaining": (b.expiry_date - today).days if b.expiry_date else None,
         "status": "expired" if (b.expiry_date and b.expiry_date < today) else ("expiring" if (b.expiry_date and (b.expiry_date - today).days <= 7) else "good")
     } for b in batches]
+
+
+@api.get("/checkout/products", tags=["checkout"])
+def checkout_products(q: str = Query(default="", max_length=120), db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    query = db.query(Product).filter(Product.status == "active")
+    term = q.strip()
+    if term:
+        pattern = f"%{term}%"
+        query = query.filter(or_(Product.name.ilike(pattern), Product.sku.ilike(pattern)))
+    products = query.order_by(Product.name).limit(20).all()
+    return [{"id": p.id, "name": p.name, "sku": p.sku, "price": float(p.price), "stock": p.current_stock,
+             "expiry_date": p.expiry_date, "batch_number": None, "category_is_grocery": bool(p.category and p.category.is_grocery),
+             "is_weight_based": bool(p.category and p.category.is_grocery and p.is_weight_based),
+             "weight_unit": p.weight_unit or (p.category.default_weight_unit if p.category else "kg"),
+             "default_weight_g": p.default_weight_g or (p.category.default_weight_g if p.category else 1000),
+             "weight_increment_g": p.weight_increment_g or (p.category.weight_increment_g if p.category else 500),
+             "minimum_weight_g": p.minimum_weight_g or (p.category.minimum_weight_g if p.category else 100),
+             "maximum_weight_g": p.maximum_weight_g or (p.category.maximum_weight_g if p.category else 100000),
+             "weight_stock_g": p.weight_stock_g} for p in products]
+
+
+def checkout_data(transaction: CheckoutTransaction) -> dict:
+    return {"invoice_id": transaction.invoice_id,
+            "customer": {"name": transaction.customer_name, "phone": transaction.customer_phone, "customer_id": transaction.customer_id},
+            "items": [{"product_id": i.product_id, "name": i.product_name, "quantity": i.quantity,
+                       "unit_price": float(i.unit_price), "total": float(i.line_total), "selected_weight_g": i.selected_weight_g,
+                       "weight_unit": i.weight_unit} for i in transaction.items],
+            "subtotal": float(transaction.subtotal), "discount": float(transaction.discount), "tax": float(transaction.tax),
+            "total": float(transaction.total), "payment_method": transaction.payment_method,
+            "payment_status": transaction.payment_status, "created_at": transaction.created_at}
+
+
+@api.post("/checkout/sales", status_code=201, tags=["checkout"])
+def complete_checkout(body: CheckoutInput, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    quantities: dict[int, int] = {}
+    selected_weights: dict[int, int] = {}
+    selected_units: dict[int, str] = {}
+    for item in body.items:
+        quantities[item.product_id] = quantities.get(item.product_id, 0) + item.quantity
+        if item.selected_weight_g is not None:
+            if item.quantity != 1:
+                raise HTTPException(422, "Weighted cart lines use a single line quantity; set the selected weight instead")
+            selected_weights[item.product_id] = selected_weights.get(item.product_id, 0) + item.selected_weight_g
+            selected_units[item.product_id] = item.weight_unit or "kg"
+    try:
+        products = {}
+        for product_id in sorted(quantities):
+            product = db.get(Product, product_id)
+            if not product or product.status != "active":
+                raise HTTPException(422, f"Product {product_id} is unavailable")
+            weighted = bool(product.category and product.category.is_grocery and product.is_weight_based)
+            if weighted:
+                if product_id not in selected_weights or quantities[product_id] != 1:
+                    raise HTTPException(422, f"Select a weight for {product.name}")
+                weight_g = selected_weights[product_id]
+                minimum = product.minimum_weight_g or product.category.minimum_weight_g
+                maximum = product.maximum_weight_g or product.category.maximum_weight_g
+                if weight_g < minimum:
+                    raise HTTPException(422, f"{product.name} must be sold in at least {minimum} g")
+                if weight_g > maximum:
+                    raise HTTPException(422, f"{product.name} exceeds the maximum sale weight of {maximum} g")
+                if product.weight_stock_g is None or product.weight_stock_g < weight_g:
+                    available_g = product.weight_stock_g or 0
+                    raise HTTPException(422, f"Insufficient weight stock for {product.name}. Available: {available_g} g; requested: {weight_g} g")
+            else:
+                if product_id in selected_weights:
+                    raise HTTPException(422, "Weight selection is allowed only for configured grocery products")
+                if product.current_stock <= 0:
+                    raise HTTPException(422, f"{product.name} is out of stock")
+                if quantities[product_id] > product.current_stock:
+                    raise HTTPException(422, f"Insufficient stock for {product.name}. Available: {product.current_stock}; requested: {quantities[product_id]}")
+            if product.expiry_date and product.expiry_date < date.today():
+                raise HTTPException(422, f"{product.name} is expired and cannot be sold")
+            products[product_id] = product
+
+        line_totals: dict[int, Decimal] = {}
+        for product_id, quantity in quantities.items():
+            product = products[product_id]
+            if product_id in selected_weights:
+                raw = Decimal(str(product.price)) * Decimal(selected_weights[product_id]) / Decimal(1000)
+            else:
+                raw = Decimal(str(product.price)) * quantity
+            line_totals[product_id] = raw.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        subtotal_decimal = sum(line_totals.values(), Decimal("0.00"))
+        discount_decimal = Decimal(str(body.discount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        tax_decimal = Decimal(str(body.tax)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if discount_decimal > subtotal_decimal:
+            raise HTTPException(422, "Discount cannot exceed the subtotal")
+        total_decimal = subtotal_decimal - discount_decimal + tax_decimal
+        if total_decimal < 0:
+            raise HTTPException(422, "Total cannot be negative")
+        total = float(total_decimal)
+        if body.payment_method == "cash" and (body.amount_received is None or body.amount_received < total):
+            raise HTTPException(422, "Cash received must cover the total")
+
+        for product_id, quantity in sorted(quantities.items()):
+            product = products[product_id]
+            weighted = product_id in selected_weights
+            if weighted:
+                weight_g = selected_weights[product_id]
+                result = db.execute(update(Product).where(Product.id == product_id, Product.weight_stock_g >= weight_g,
+                                  Product.status == "active", Product.category_id.in_(db.query(Category.id).filter(Category.is_grocery.is_(True))), Product.is_weight_based.is_(True),
+                                  or_(Product.expiry_date.is_(None), Product.expiry_date >= date.today()))
+                                  .values(weight_stock_g=Product.weight_stock_g - weight_g).execution_options(synchronize_session=False))
+            else:
+                result = db.execute(update(Product).where(Product.id == product_id, Product.current_stock >= quantity,
+                                  Product.status == "active", or_(Product.expiry_date.is_(None), Product.expiry_date >= date.today()))
+                                  .values(current_stock=Product.current_stock - quantity).execution_options(synchronize_session=False))
+            if result.rowcount != 1:
+                raise HTTPException(409, f"Stock changed while completing checkout for {products[product_id].name}. Refresh and try again.")
+
+        transaction = CheckoutTransaction(invoice_id=f"PENDING-{uuid.uuid4().hex}", customer_name=body.customer_name.strip() or "Walk-in Customer",
+                    customer_phone=body.customer_phone, customer_id=body.customer_id, subtotal=float(subtotal_decimal),
+                    discount=float(discount_decimal), tax=float(tax_decimal), total=total, payment_method=body.payment_method, payment_status="PAID")
+        db.add(transaction)
+        db.flush()
+        transaction.invoice_id = f"INV-{datetime.utcnow():%Y%m%d}-{transaction.id:03d}"
+        for product_id, quantity in quantities.items():
+            product = products[product_id]
+            line_total = float(line_totals[product_id])
+            weighted = product_id in selected_weights
+            sale_quantity = 1 if weighted else quantity
+            discount_ratio = float(discount_decimal / subtotal_decimal) if subtotal_decimal else 0
+            db.add(CheckoutItem(transaction_id=transaction.id, product_id=product_id, product_name=product.name,
+                                quantity=sale_quantity, unit_price=product.price, line_total=line_total,
+                                selected_weight_g=selected_weights.get(product_id), weight_unit=selected_units.get(product_id)))
+            db.add(Sale(date=date.today(), product_id=product_id, quantity_sold=sale_quantity, unit_price=product.price,
+                        discount=discount_ratio, revenue=round(line_total * (1 - discount_ratio), 2),
+                        channel="store", location="Main Store"))
+            db.add(InventoryTransaction(product_id=product_id, quantity_delta=0 if weighted else -quantity,
+                                        weight_delta_g=-selected_weights[product_id] if weighted else None, transaction_type="sale",
+                                        note=(f"Invoice {transaction.invoice_id} · {selected_weights[product_id]} g" if weighted else f"Invoice {transaction.invoice_id}"), user_id=user.id))
+        audit(db, user, "create", "checkout", transaction.invoice_id, {"total": total, "items": len(quantities)})
+        db.commit()
+        db.refresh(transaction)
+        return checkout_data(transaction)
+    except Exception:
+        db.rollback()
+        raise
+
+
+@api.get("/checkout/invoices/{invoice_id}", tags=["checkout"])
+def get_checkout_invoice(invoice_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    transaction = db.query(CheckoutTransaction).filter_by(invoice_id=invoice_id).first()
+    if not transaction:
+        raise HTTPException(404, "Invoice not found")
+    return checkout_data(transaction)
 
 
 @api.get("/sales", tags=["sales"])

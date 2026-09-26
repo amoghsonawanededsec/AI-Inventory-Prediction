@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
@@ -89,6 +89,20 @@ class SupplierRead(SupplierInput, ORMModel):
 
 class CategoryInput(BaseModel):
     name: str = Field(min_length=2, max_length=100)
+    is_grocery: bool = False
+    default_weight_unit: str = Field(default="kg", pattern="^(kg|g)$")
+    default_weight_g: int = Field(default=1000, gt=0, le=1000000)
+    weight_increment_g: int = Field(default=500, gt=0, le=1000000)
+    minimum_weight_g: int = Field(default=100, gt=0, le=1000000)
+    maximum_weight_g: int = Field(default=100000, gt=0, le=10000000)
+
+    @field_validator("maximum_weight_g")
+    @classmethod
+    def maximum_weight_must_cover_minimum(cls, value: int, info):
+        minimum = info.data.get("minimum_weight_g", 1)
+        if value < minimum:
+            raise ValueError("Maximum weight must be greater than or equal to minimum weight")
+        return value
 
 
 class CategoryRead(CategoryInput, ORMModel):
@@ -111,6 +125,21 @@ class ProductInput(BaseModel):
     safety_stock: int = Field(ge=0)
     lead_time_days: int = Field(default=3, ge=0)
     status: str = "active"
+    is_weight_based: bool = False
+    weight_unit: str | None = Field(default=None, pattern="^(kg|g)$")
+    default_weight_g: int | None = Field(default=None, gt=0, le=1000000)
+    weight_increment_g: int | None = Field(default=None, gt=0, le=1000000)
+    minimum_weight_g: int | None = Field(default=None, gt=0, le=1000000)
+    maximum_weight_g: int | None = Field(default=None, gt=0, le=10000000)
+    weight_stock_g: int | None = Field(default=None, ge=0, le=1000000000)
+
+    @field_validator("maximum_weight_g")
+    @classmethod
+    def maximum_weight_must_cover_minimum(cls, value: int | None, info):
+        minimum = info.data.get("minimum_weight_g")
+        if value is not None and minimum is not None and value < minimum:
+            raise ValueError("Maximum weight must be greater than or equal to minimum weight")
+        return value
 
 
 class ProductRead(ProductInput, ORMModel):
@@ -142,6 +171,67 @@ class SaleInput(BaseModel):
     holiday: bool = False
     channel: str = "store"
     location: str = "Main Store"
+
+
+class CheckoutLineInput(BaseModel):
+    product_id: int
+    quantity: int = Field(gt=0, le=100000)
+    selected_weight_g: int | None = Field(default=None, gt=0, le=100000000)
+    weight_unit: str | None = Field(default=None, pattern="^(kg|g)$")
+
+
+class CheckoutInput(BaseModel):
+    items: list[CheckoutLineInput] = Field(min_length=1)
+    discount: float = Field(default=0, ge=0)
+    tax: float = Field(default=0, ge=0)
+    customer_name: str = Field(default="Walk-in Customer", min_length=1, max_length=180)
+    customer_phone: str | None = Field(default=None, max_length=40)
+    customer_id: str | None = Field(default=None, max_length=80)
+    payment_method: str = Field(pattern="^(cash|upi|card|other)$")
+    amount_received: float | None = Field(default=None, ge=0)
+
+    @field_validator("discount", "tax", "amount_received", mode="before")
+    @classmethod
+    def finite_money(cls, value):
+        if value is not None and (not isinstance(value, (int, float)) or value != value or value in (float("inf"), float("-inf"))):
+            raise ValueError("Amount must be a finite number")
+        return value
+
+
+class WeightStockAdjustment(BaseModel):
+    weight_delta_g: int = Field(ge=-100000000, le=100000000)
+    transaction_type: str = Field(default="adjustment", pattern="^(receipt|sale|adjustment|waste|transfer)$")
+    note: str = Field(default="", max_length=500)
+
+    @field_validator("weight_delta_g")
+    @classmethod
+    def weight_delta_must_be_nonzero(cls, value: int) -> int:
+        if value == 0:
+            raise ValueError("Weight adjustment must be non-zero")
+        return value
+
+
+class CheckoutItemRead(BaseModel):
+    product_id: int
+    name: str
+    quantity: int
+    unit_price: float
+    total: float
+    selected_weight_g: int | None = None
+    weight_unit: str | None = None
+
+
+class CheckoutRead(BaseModel):
+    invoice_id: str
+    customer: dict
+    items: list[CheckoutItemRead]
+    subtotal: float
+    discount: float
+    tax: float
+    total: float
+    payment_method: str
+    payment_status: str
+    created_at: datetime
 
 
 class SaleRead(SaleInput, ORMModel):

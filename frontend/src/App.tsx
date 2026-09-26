@@ -11,11 +11,12 @@ import ChatPage from './pages/ChatPage'
 import DataInputPage from './pages/DataInputPage'
 import SignupPage from './pages/SignupPage'
 import AdminPage from './pages/AdminPage'
+import CheckoutPage from './pages/CheckoutPage'
 
 import ErrorBoundary from './components/ErrorBoundary'
 
 const VALID_PAGES: PageKey[] = [
-  'dashboard', 'data-input', 'products', 'inventory', 'sales', 'forecasts',
+  'dashboard', 'data-input', 'products', 'inventory', 'checkout', 'sales', 'forecasts',
   'waste', 'reorders', 'orders', 'suppliers', 'analytics',
   'chat', 'knowledge', 'models', 'admin', 'users', 'settings'
 ]
@@ -55,6 +56,7 @@ function App() {
 
   const logout = () => {
     clearSession()
+    sessionStorage.removeItem('inventory_checkout_cart')
     setUser(null)
     setPage('dashboard')
   }
@@ -73,6 +75,7 @@ function App() {
   else if (activePage === 'admin' && user.role === 'admin') view = <AdminPage currentUser={user}/>
   else if (activePage === 'data-input') view = <DataInputPage/>
   else if (activePage === 'products') view = <ProductsPage/>
+  else if (activePage === 'checkout') view = <CheckoutPage/>
   else if (activePage === 'chat') view = <ChatPage/>
   else view = <DataPage kind={activePage} currentUser={user}/>
 

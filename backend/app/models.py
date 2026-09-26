@@ -50,6 +50,12 @@ class Category(BusinessScoped, Base):
     __tablename__ = "categories"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), index=True)
+    is_grocery: Mapped[bool] = mapped_column(Boolean, default=False)
+    default_weight_unit: Mapped[str] = mapped_column(String(2), default="kg")
+    default_weight_g: Mapped[int] = mapped_column(Integer, default=1000)
+    weight_increment_g: Mapped[int] = mapped_column(Integer, default=500)
+    minimum_weight_g: Mapped[int] = mapped_column(Integer, default=100)
+    maximum_weight_g: Mapped[int] = mapped_column(Integer, default=100000)
     __table_args__ = (UniqueConstraint("business_id", "name", name="uq_category_business_name"),)
 
 
@@ -84,6 +90,13 @@ class Product(BusinessScoped, Base, TimestampMixin):
     safety_stock: Mapped[int] = mapped_column(Integer, default=0)
     lead_time_days: Mapped[int] = mapped_column(Integer, default=3)
     status: Mapped[str] = mapped_column(String(30), default="active")
+    is_weight_based: Mapped[bool] = mapped_column(Boolean, default=False)
+    weight_unit: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
+    default_weight_g: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    weight_increment_g: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    minimum_weight_g: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    maximum_weight_g: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    weight_stock_g: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     category: Mapped["Category"] = relationship()
     supplier: Mapped["Supplier"] = relationship(back_populates="products")
     batches: Mapped[List["InventoryBatch"]] = relationship(back_populates="product", cascade="all, delete-orphan")
@@ -106,6 +119,7 @@ class InventoryTransaction(BusinessScoped, Base, TimestampMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
     quantity_delta: Mapped[int] = mapped_column(Integer)
+    weight_delta_g: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     transaction_type: Mapped[str] = mapped_column(String(30))
     note: Mapped[str] = mapped_column(String(500), default="")
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
@@ -124,6 +138,37 @@ class Sale(BusinessScoped, Base):
     channel: Mapped[str] = mapped_column(String(40), default="store")
     location: Mapped[str] = mapped_column(String(100), default="Main Store")
     revenue: Mapped[float] = mapped_column(Numeric(12, 2))
+
+
+class CheckoutTransaction(BusinessScoped, Base):
+    __tablename__ = "checkout_transactions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_id: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    customer_name: Mapped[str] = mapped_column(String(180), default="Walk-in Customer")
+    customer_phone: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    customer_id: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    subtotal: Mapped[float] = mapped_column(Numeric(12, 2))
+    discount: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    tax: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    total: Mapped[float] = mapped_column(Numeric(12, 2))
+    payment_method: Mapped[str] = mapped_column(String(20))
+    payment_status: Mapped[str] = mapped_column(String(20), default="PAID")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    items: Mapped[List["CheckoutItem"]] = relationship(back_populates="transaction", cascade="all, delete-orphan")
+
+
+class CheckoutItem(BusinessScoped, Base):
+    __tablename__ = "checkout_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transaction_id: Mapped[int] = mapped_column(ForeignKey("checkout_transactions.id"), index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    product_name: Mapped[str] = mapped_column(String(180))
+    quantity: Mapped[int] = mapped_column(Integer)
+    unit_price: Mapped[float] = mapped_column(Numeric(12, 2))
+    line_total: Mapped[float] = mapped_column(Numeric(12, 2))
+    selected_weight_g: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    weight_unit: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
+    transaction: Mapped["CheckoutTransaction"] = relationship(back_populates="items")
 
 
 class Forecast(BusinessScoped, Base, TimestampMixin):

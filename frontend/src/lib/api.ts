@@ -18,9 +18,17 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   const token = getToken(); if (token) headers.set('Authorization', `Bearer ${token}`)
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
-  const response = await fetch(`${API_ROOT}${path}`, { ...init, headers })
+  let response: Response
+  try {
+    response = await fetch(`${API_ROOT}${path}`, { ...init, headers })
+  } catch {
+    throw new Error('Unable to reach the Stockwise server. Please check that the backend is running and try again.')
+  }
   if (response.status === 204) return undefined as T
   const payload = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(payload?.error?.message || payload?.detail || 'The request could not be completed.')
+  if (!response.ok) {
+    const message = payload?.error?.message || (typeof payload?.error === 'string' ? payload.error : null) || payload?.detail || payload?.message
+    throw new Error(message || (response.status === 429 ? 'Too many sign-in attempts. Wait a minute, then try again.' : `The request failed (${response.status}). Please try again.`))
+  }
   return payload as T
 }
